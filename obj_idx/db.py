@@ -1,6 +1,6 @@
 """Object Index Database Models"""
 
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+#from sqlalchemy.dialects.postgresql import UUID, JSONB
 import flask_sqlalchemy
 from . import app
 
@@ -24,15 +24,28 @@ class Object(db.Model):
     bucket = db.Column(db.String(63))
     key = db.Column(db.String(1023))
     size = db.Column(db.Integer)
-    url = db.Column(db.String(64))
-    files = db.relationship('File', backref='object', lazy=True)
-
+    checksum = db.Column(db.LargeBinary(32))
+    ctime = db.Column(db.DateTime)
+    mime = db.Column(db.String(255))
+    completed = db.Column(db.Boolean)
+    deleted = db.Column(db.Boolean)
+    metadata = db.Column(db.JSONB)
 
 class File(db.Model):
     """File table"""
     uuid = db.Column(UUID(as_uuid=True), primary_key=True)
     obj_uuid = db.Column(UUID(as_uuid=True), db.ForeignKey('object.uuid'), nullable=True)
-    url = db.Column(db.String(128))
+    ctime = db.Column(db.DateTime)
+    mtime = db.Column(db.DateTime)
+    url = db.Column(db.String(2047))
+    direct = db.Column(db.Boolean)
+    partial = db.Column(db.Boolean)
+    metadata = db.Column(db.JSONB)
+    user = db.Column(db.String(15))
+    uploader = db.Column(db.String(15))
+    hostname = db.Column(db.String(64))
+
+
 
 #if __name__ == '__main__':
 #    db.create_all()
