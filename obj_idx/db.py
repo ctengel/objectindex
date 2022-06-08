@@ -1,6 +1,6 @@
 """Object Index Database Models"""
 
-#from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 import flask_sqlalchemy
 from . import app
 
@@ -29,7 +29,7 @@ class Object(db.Model):
     mime = db.Column(db.String(255))
     completed = db.Column(db.Boolean)
     deleted = db.Column(db.Boolean)
-    metadata = db.Column(db.JSONB)
+    extra = db.Column(JSONB)
 
 class File(db.Model):
     """File table"""
@@ -40,7 +40,7 @@ class File(db.Model):
     url = db.Column(db.String(2047))
     direct = db.Column(db.Boolean)
     partial = db.Column(db.Boolean)
-    metadata = db.Column(db.JSONB)
+    extra = db.Column(JSONB)
     user = db.Column(db.String(15))
     uploader = db.Column(db.String(15))
     hostname = db.Column(db.String(64))
