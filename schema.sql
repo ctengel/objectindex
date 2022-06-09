@@ -27,15 +27,15 @@ SET default_table_access_method = heap;
 CREATE TABLE public.file (
     uuid uuid NOT NULL,
     obj_uuid uuid,
-    ctime timestamp without time zone,
+    ctime timestamp without time zone NOT NULL,
     mtime timestamp without time zone,
-    url character varying(2047),
-    direct boolean,
-    partial boolean,
+    url character varying(2047) NOT NULL,
+    direct boolean NOT NULL,
+    partial boolean NOT NULL,
     extra jsonb,
-    "user" character varying(15),
-    uploader character varying(15),
-    hostname character varying(64)
+    ul_user character varying(15),
+    ul_sw character varying(15),
+    ul_host character varying(64)
 );
 
 
@@ -47,14 +47,14 @@ ALTER TABLE public.file OWNER TO chris;
 
 CREATE TABLE public.object (
     uuid uuid NOT NULL,
-    bucket character varying(63),
-    key character varying(1023),
-    size integer,
+    bucket character varying(63) NOT NULL,
+    key character varying(1023) NOT NULL,
+    obj_size bigint NOT NULL,
     checksum bytea,
-    ctime timestamp without time zone,
+    ctime timestamp without time zone NOT NULL,
     mime character varying(255),
-    completed boolean,
-    deleted boolean,
+    completed boolean NOT NULL,
+    deleted boolean NOT NULL,
     extra jsonb
 );
 
@@ -75,6 +75,34 @@ ALTER TABLE ONLY public.file
 
 ALTER TABLE ONLY public.object
     ADD CONSTRAINT object_pkey PRIMARY KEY (uuid);
+
+
+--
+-- Name: buckey; Type: INDEX; Schema: public; Owner: chris
+--
+
+CREATE INDEX buckey ON public.object USING btree (bucket, key);
+
+
+--
+-- Name: ix_file_obj_uuid; Type: INDEX; Schema: public; Owner: chris
+--
+
+CREATE INDEX ix_file_obj_uuid ON public.file USING btree (obj_uuid);
+
+
+--
+-- Name: ix_file_url; Type: INDEX; Schema: public; Owner: chris
+--
+
+CREATE INDEX ix_file_url ON public.file USING btree (url);
+
+
+--
+-- Name: ix_object_checksum; Type: INDEX; Schema: public; Owner: chris
+--
+
+CREATE INDEX ix_object_checksum ON public.object USING btree (checksum);
 
 
 --

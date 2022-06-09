@@ -3,4 +3,5 @@
 from . import db
 
 db = db.db
+db.drop_all()
 db.create_all()
