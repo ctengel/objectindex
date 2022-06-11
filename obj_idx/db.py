@@ -1,6 +1,7 @@
 """Object Index Database Models"""
 
 import datetime
+import uuid
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 import flask_sqlalchemy
 from . import app
@@ -15,21 +16,22 @@ db = flask_sqlalchemy.SQLAlchemy(app)
 
 class Object(db.Model):
     """Object table"""
-    uuid = db.Column(UUID(as_uuid=True), primary_key=True)
+    uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
     bucket = db.Column(db.String(63), nullable=False)
     key = db.Column(db.String(1023), nullable=False)
-    obj_size = db.Column(db.BigInteger, nullable=False)
+    obj_size = db.Column(db.BigInteger, nullable=False) # TODO unsigned
     checksum = db.Column(db.LargeBinary(32), index=True)
     ctime = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
     mime = db.Column(db.String(255))
     completed = db.Column(db.Boolean, default=False, nullable=False)
     deleted = db.Column(db.Boolean, default=False, nullable=False)
     extra = db.Column(JSONB)
+    files = db.relationship('File', backref='file_object', lazy=True)
     __table_args__ = (db.Index('buckey', "bucket", "key"), )
 
 class File(db.Model):
     """File table"""
-    uuid = db.Column(UUID(as_uuid=True), primary_key=True)
+    uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
     obj_uuid = db.Column(UUID(as_uuid=True), db.ForeignKey('object.uuid'), index=True, nullable=True)
     ctime = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
     mtime = db.Column(db.DateTime, nullable=True)
