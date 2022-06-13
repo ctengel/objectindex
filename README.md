@@ -38,6 +38,9 @@ Hardware and such:
 1. Boot
 2. sudo raspi-config
    - ssh
+   - hostname
+   - disable autologin
+   - locale
    - etc
 3. `/etc/dhcpcd.conf`
 
