@@ -19,7 +19,7 @@ class Object(db.Model):
     uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
     bucket = db.Column(db.String(63), nullable=False)
     key = db.Column(db.String(1023), nullable=False)
-    obj_size = db.Column(db.BigInteger, nullable=False) # TODO unsigned
+    obj_size = db.Column(db.BigInteger, nullable=False) # NOTE Postgres doesn't support unsigned
     checksum = db.Column(db.LargeBinary(32), index=True)
     ctime = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
     mime = db.Column(db.String(255))
@@ -32,7 +32,10 @@ class Object(db.Model):
 class File(db.Model):
     """File table"""
     uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
-    obj_uuid = db.Column(UUID(as_uuid=True), db.ForeignKey('object.uuid'), index=True, nullable=True)
+    obj_uuid = db.Column(UUID(as_uuid=True),
+                         db.ForeignKey('object.uuid'),
+                         index=True,
+                         nullable=True)
     ctime = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
     mtime = db.Column(db.DateTime, nullable=True)
     url = db.Column(db.String(2047), index=True, nullable=False)

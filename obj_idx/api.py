@@ -17,10 +17,13 @@ filns = api.namespace('file', description='File operations')
 objns = api.namespace('object', description='Object operations')
 
 abf = api.model('BriefFile', {'uuid': flask_restx.fields.String(readonly=True),
-    'url': flask_restx.fields.Url(readonly=True),
+                              'url': flask_restx.fields.Url(readonly=True),
                               'link': flask_restx.fields.String(readonly=True)})
-ull = api.model('UploadLink', {'link': flask_restx.fields.String(readonly=True),
-                               'url': flask_restx.fields.String(readonly=True)})
+s3l = api.model('S3Link', {'server': flask_restx.fields.String(),
+                           'bucket': flask_restx.fields.String(),
+                           'key': flask_restx.fields.String()})
+ull = api.model('UploadLinks', {'finished': flask_restx.fields.String(readonly=True),
+                               's3': flask_restx.fields.Nested(s3l, readonly=True)})
 upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
                               'url': flask_restx.fields.String(required=True),
                               'direct': flask_restx.fields.Boolean(default=True),
@@ -36,7 +39,7 @@ upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
                               'checksum':  flask_restx.fields.String(required=True),
                               'mime':  flask_restx.fields.String()})
 obj = api.model('Object', {'ctime': flask_restx.fields.DateTime(readonly=True),
-                           'files': flask_restx.fields.List(abf),
+                           'files': flask_restx.fields.List(flask_restx.fields.Nested(abf)),
                            'url': flask_restx.fields.String(required=True),
                            'extra': flask_restx.fields.Raw(),
                            'key': flask_restx.fields.String(readonly=True),
@@ -67,7 +70,9 @@ ulr = api.model('UploadResult', {'file': flask_restx.fields.Nested(fil),
 
 def get_dl_url(objobj):
     """Get a URLish list of server, bucket, key"""
-    return [app.config.from_envvar('OBJIDX_S3'), objobj.bucket, objobj.key]
+    return {'server': app.config['OBJIDX_S3'],
+            'bucket': objobj.bucket,
+            'key': objobj.key}
 
 # flask_restx.fields.Integer(readonly=True, description='Task ID'),
 
@@ -81,54 +86,58 @@ class Upload(flask_restx.Resource):
     def post(self):
         """Upload or get info"""
         exists = False
-        checksum = bytes.fromhex(api.payload.checksum)
-        my_obj = db.Object.query.filter(checksum=checksum).one_or_none()
+        checksum = bytes.fromhex(api.payload['checksum'])
+        assert api.payload['bucket'] in app.config['OBJIDX_BUCKETS']
+        my_obj = db.Object.query.filter_by(checksum=checksum).one_or_none()
         if my_obj:
             exists = True
-            assert my_obj.obj_size == api.payload.obj_size
+            assert my_obj.obj_size == api.payload['obj_size']
             assert my_obj.completed
             assert not my_obj.deleted
-            if api.payload.mime and not my_obj.mime:
-                my_obj.mime = api.payload.mime
-            if api.payload.extra_object and not my_obj.extra:
-                my_obj.extra = api.payload.extra_object
+            if api.payload['mime'] and not my_obj.mime:
+                my_obj.mime = api.payload['mime']
+            if api.payload.get('extra_object') and not my_obj.extra:
+                my_obj.extra = api.payload['extra_object']
         else:
-            my_obj = db.Object(bucket=api.payload.bucket,
-                               key="{}-{}".format(checksum.hex(), api.payload.filename),
-                               obj_size=api.payload.obj_size,
-                               checksum=api.payload.checksum,
-                               mime=api.payload.mime,
-                               extra=api.payload.extra_object)
+            my_obj = db.Object(bucket=api.payload['bucket'],
+                               key="{}-{}".format(checksum.hex(), api.payload['filename']),
+                               obj_size=api.payload['obj_size'],
+                               checksum=checksum,
+                               mime=api.payload['mime'],
+                               extra=api.payload.get('extra_object'))
             db.db.session.add(my_obj)
-        my_file = db.File.query.filter(url=api.payload.url, file_object=my_obj).one_or_none()
+        my_file = db.File.query.filter_by(url=api.payload['url'], file_object=my_obj).one_or_none()
         if my_file:
             assert exists
-            assert my_file.direct == api.payload.direct
-            assert my_file.partial == api.payload.partial
-            if api.payload.mtime and not my_file.mtime:
-                my_file.mtime = api.payload.mtime
-            if api.payload.extra_file and not my_file.extra:
-                my_file.extra = api.payload.extra_file
+            assert my_file.direct == api.payload['direct']
+            assert my_file.partial == api.payload['partial']
+            if api.payload['mtime'] and not my_file.mtime:
+                my_file.mtime = api.payload['mtime']
+            if api.payload.get('extra_file') and not my_file.extra:
+                my_file.extra = api.payload['extra_file']
         else:
             my_file = db.File(file_object=my_obj,
-                              mtime=api.payload.mtime,
-                              url=api.payload.url,
-                              direct=api.payload.direct,
-                              partial=api.payload.partial,
-                              extra=api.payload.extra_file,
-                              ul_user=api.payload.ul_user,
-                              ul_sw=api.payload.ul_sw,
-                              ul_host=api.payload.host)
+                              mtime=api.payload['mtime'],
+                              url=api.payload['url'],
+                              direct=api.payload['direct'],
+                              partial=api.payload.get('partial'),
+                              extra=api.payload.get('extra_file'),
+                              ul_user=api.payload['ul_user'],
+                              ul_sw=api.payload['ul_sw'],
+                              ul_host=api.payload['ul_host'])
             db.db.session.add(my_file)
 
         db.db.session.commit()
+        #print(my_file.__dict__)
         retobj =  {'file': my_file, 'exists': exists}
+        #retobj['file']['object'] = my_obj
         if exists:
             retobj['download'] = get_dl_url(my_obj)
         else:
             retobj['upload'] = {'s3': get_dl_url(my_obj),
                                 'finished': api.url_for(ObjectOne, obj_uuid=my_obj.uuid)}
         return retobj, 201
+
 
 @filns.route('/')
 class FileList(flask_restx.Resource):
@@ -141,7 +150,7 @@ class FileList(flask_restx.Resource):
         parser = flask_restx.reqparse.RequestParser()
         parser.add_argument('url')
         args = parser.parse_args()
-        return db.File.query.filter(url=args.url).all()
+        return db.File.query.filter_by(url=args.url).all()
 
 
 @filns.route('/<fil_uuid>/')
@@ -159,7 +168,7 @@ class FileOne(flask_restx.Resource):
 
 @objns.route('/')
 class ObjectList(flask_restx.Resource):
-    """File search"""
+    """Object search"""
 
     @objns.doc('search_files')
     @objns.marshal_list_with(obj)
@@ -168,17 +177,28 @@ class ObjectList(flask_restx.Resource):
         parser = flask_restx.reqparse.RequestParser()
         parser.add_argument('checksum')
         args = parser.parse_args()
-        return db.Object.query.filter(checksum=args.checksum).all()
+        return db.Object.query.filter_by(checksum=args.checksum).all()
 
 
-@objns.route('/<fil_uuid>/')
+@objns.route('/<obj_uuid>/')
 @objns.response(404, 'File not found')
 @objns.param('obj_uuid', 'File UUID')
 class ObjectOne(flask_restx.Resource):
     """File instance"""
 
     @objns.doc('get_object')
-    @objns.marshal_with(fil)
+    @objns.marshal_with(obj)
     def get(self, obj_uuid):
         """Get library media"""
         return db.Object.query.get_or_404(uuid.UUID(obj_uuid))
+
+    @objns.doc('put_object')
+    @objns.marshal_with(obj)
+    @objns.expect(obj)
+    def put(self, obj_uuid):
+        """Let us know an upload is completed"""
+        myobj = db.Object.query.get_or_404(uuid.UUID(obj_uuid))
+        if api.payload['completed'] and not myobj.completed:
+            myobj.completed = True
+            db.db.session.commit()
+        return myobj
