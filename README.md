@@ -73,3 +73,37 @@ Hardware and such:
 2. `wget https://dl.min.io/server/mc/release/linux-arm64/mc`
 3. `chmod a+x minio mc`
 4. `MINIO_ROOT_USER=minio MINIO_ROOT_PASSWORD=password /home/minio/minio server /mnt/obj1data --address 0.0.0.0:9000 --console-address 0.0.0.0:9001`
+
+### Postgres
+
+Some info on getting PostgreSQL running on Fedora:
+
+- https://developer.fedoraproject.org/tech/database/postgresql/about.html
+  - https://docs.fedoraproject.org/en-US/quick-docs/postgresql/
+  - `/usr/share/doc/postgresql/README.rpm-dist`
+
+```
+sudo dnf install postgresql-server
+sudo postgresql-setup --initdb
+sudo systemctl start postgresql
+sudo su -c "createuser USER" postgres
+sudo su -c "createdb -O USER DB" postgres
+OBJIDX_SETTINGS=../samp.cfg python3 -m obj_idx.db_create
+pg_dump --schema-only DB > schema.sql
+```
+
+The `db_create.py` script will empty a database and create tables in the schema, and uses the same config file as the web app.
+
+## Config file
+
+```
+DEBUG = True
+SQLALCHEMY_DATABASE_URI = 'postgresql:///objidx'
+SQLALCHEMY_TRACK_MODIFICATIONS = False
+OBJIDX_S3 = 'http://user:pass@localhost:9000/'
+OBJIDX_BUCKETS = ['bucket1']
+```
+
+- `OBJIDX_S3` is a special URL for S3
+- `OBJIDX_BUCKETS` is a list of buckets that may be used.
+- The rest are standard Flask and sqlalchemy options
