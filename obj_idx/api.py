@@ -5,6 +5,11 @@ import flask_restx
 from . import app
 from . import db
 
+class Checksum(flask_restx.fields.Raw):
+    """Render binary field from DB as hex"""
+    def format(self, value):
+        return value.hex()
+
 app = app.app
 api = flask_restx.Api(app,
                       version='0.1',
@@ -16,9 +21,10 @@ uplns = api.namespace('upload', description='Upload operations')
 filns = api.namespace('file', description='File operations')
 objns = api.namespace('object', description='Object operations')
 
+# TODO add link to full file URL (i.e. GET /file/abcd)
 abf = api.model('BriefFile', {'uuid': flask_restx.fields.String(readonly=True),
-                              'url': flask_restx.fields.Url(readonly=True),
-                              'link': flask_restx.fields.String(readonly=True)})
+                              'url': flask_restx.fields.String(readonly=True)})
+                              #'link': flask_restx.fields.String(readonly=True)})
 s3l = api.model('S3Link', {'server': flask_restx.fields.String(),
                            'bucket': flask_restx.fields.String(),
                            'key': flask_restx.fields.String()})
@@ -38,19 +44,20 @@ upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
                               'obj_size': flask_restx.fields.Integer(required=True),
                               'checksum':  flask_restx.fields.String(required=True),
                               'mime':  flask_restx.fields.String()})
+# TODO need to include S3 URL somehow here...
 obj = api.model('Object', {'ctime': flask_restx.fields.DateTime(readonly=True),
                            'files': flask_restx.fields.List(flask_restx.fields.Nested(abf)),
-                           'url': flask_restx.fields.String(required=True),
+                           #'url': flask_restx.fields.String(required=True),
                            'extra': flask_restx.fields.Raw(),
                            'key': flask_restx.fields.String(readonly=True),
                            'completed': flask_restx.fields.Boolean(),
                            'deleted': flask_restx.fields.Boolean(),
                            'bucket':  flask_restx.fields.String(readonly=True),
                            'obj_size': flask_restx.fields.Integer(readonly=True),
-                           'checksum':  flask_restx.fields.String(readonly=True),
+                           'checksum':  Checksum(readonly=True),
                            'mime':  flask_restx.fields.String(),
-                           'uuid': flask_restx.fields.String(readonly=True),
-                           'download': flask_restx.fields.String(readonly=True)})
+                           'uuid': flask_restx.fields.String(readonly=True)})#,
+                           #'download': flask_restx.fields.String(readonly=True)})
 fil = api.model('File',  {'mtime': flask_restx.fields.DateTime(),
                           'url': flask_restx.fields.String(readonly=True),
                           'direct': flask_restx.fields.Boolean(),
@@ -59,13 +66,13 @@ fil = api.model('File',  {'mtime': flask_restx.fields.DateTime(),
                           'ul_sw': flask_restx.fields.String(),
                           'ul_host': flask_restx.fields.String(),
                           'partial': flask_restx.fields.Boolean(),
-                          'object': flask_restx.fields.Nested(obj),
+                          'file_object': flask_restx.fields.Nested(obj),
                           'uuid': flask_restx.fields.String(readonly=True),
                           'ctime': flask_restx.fields.DateTime(readonly=True)})
 ulr = api.model('UploadResult', {'file': flask_restx.fields.Nested(fil),
                                  'exists': flask_restx.fields.Boolean(),
                                  'upload': flask_restx.fields.Nested(ull),
-                                 'download': flask_restx.fields.String(readonly=True)})
+                                 'download': flask_restx.fields.Nested(s3l, readonly=True)})
 
 
 def get_dl_url(objobj):
@@ -170,7 +177,7 @@ class FileOne(flask_restx.Resource):
 class ObjectList(flask_restx.Resource):
     """Object search"""
 
-    @objns.doc('search_files')
+    @objns.doc('search_objects')
     @objns.marshal_list_with(obj)
     def get(self):
         """Search for a file"""
