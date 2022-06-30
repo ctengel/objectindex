@@ -150,7 +150,9 @@ class Upload(flask_restx.Resource):
 class FileList(flask_restx.Resource):
     """File search"""
 
-    @filns.doc('search_files')
+    @filns.doc('search_files',
+               params={'url': {'description': 'Source URL to search for',
+                               'type': 'string'}})
     @filns.marshal_list_with(fil)
     def get(self):
         """Search for a file"""
@@ -177,14 +179,17 @@ class FileOne(flask_restx.Resource):
 class ObjectList(flask_restx.Resource):
     """Object search"""
 
-    @objns.doc('search_objects')
+    @objns.doc('search_objects',
+               params={'checksum': {'description': 'Checksum to search for',
+                                    'type': 'string'}})
     @objns.marshal_list_with(obj)
     def get(self):
         """Search for a file"""
         parser = flask_restx.reqparse.RequestParser()
         parser.add_argument('checksum')
         args = parser.parse_args()
-        return db.Object.query.filter_by(checksum=args.checksum).all()
+        checksum = bytes.fromhex(args['checksum'])
+        return db.Object.query.filter_by(checksum=checksum).all()
 
 
 @objns.route('/<obj_uuid>/')
