@@ -22,13 +22,18 @@ Consume S3 API(s) (from MinIO or the like) and expose a rich metadata store.
 Hardware and such:
 
 - Raspberry Pi 3B, 3B+, 400
+  - starting specifically with 3B+
+  - tuning may be needed for Pis older than 4/400
 - External USB hard drive with SMR
+  - note that HDDs like this don't play well with having additional USB devices plugged in like an SSD; if you want to do this you will need to have an extra power source like a USB hub
 - ext4 format
   - strongly considering xfs
 - standalone/non erasure
+  - note that single node single drive MinIO has been deprecated in late 2022 - single drive erasure coding has been introduced so using that now
 - 32GB mini SDHC
+  - keep the swap here; putting on USB just overloads USB power/traffic
 
-### Steps
+### Steps to get MinIO running
 
 #### On another machine
 1. Download `2022-04-04-raspios-bullseye-arm64-lite.img.xz` or similar from https://www.raspberrypi.com/software/operating-systems/ 
@@ -41,6 +46,7 @@ Hardware and such:
    - hostname
    - disable autologin
    - locale
+   - handle wifi killswitch?
    - etc
 3. `/etc/dhcpcd.conf`
 
@@ -51,6 +57,36 @@ Hardware and such:
 
 4. `sudo apt update; sudo apt upgrade`
 5. `sudo parted`
+
+		$ sudo parted /dev/sdb
+		GNU Parted 3.4
+		Using /dev/sdb
+		Welcome to GNU Parted! Type 'help' to view a list of commands.
+		(parted) help    
+		...                                                         
+		(parted) mklabel                                                          
+		New disk label type? gpt
+		Warning: The existing disk label on /dev/sdb will be destroyed and all data on this disk will be lost. Do you want to continue?
+		Yes/No? y                                                                 
+		(parted) mkpart                                                           
+		Partition name?  []? 
+		File system type?  [ext2]? ext4                                           
+		Start? 1                                                                  
+		End? 100%                                                                 
+		(parted) print                                                            
+		Model: ...
+		Disk /dev/sdb: 2000GB
+		Sector size (logical/physical): 512B/512B
+		Partition Table: gpt
+		Disk Flags: 
+
+		Number  Start   End     Size    File system  Name          Flags
+		 1      1049kB  2000GB  2000GB  ext4         ...
+
+		(parted) quit   
+
+
+
 
 		Model: Seagate BUP Portable (scsi)
 		Disk /dev/sda: 5001GB
@@ -71,11 +107,28 @@ Hardware and such:
 10. `sudo chown minio:minio /mnt/obj1data`
 11. `sudo apt install screen`
 
+We need to periodically monitor and tune hardware:
+- `/usr/bin/vcgencmd measure_temp`
+- see https://www.blackmoreops.com/2014/09/22/linux-kernel-panic-issue-fix-hung_task_timeout_secs-blocked-120-seconds-problem/
+  - `echo 1440 | sudo tee /sys/block/sda/device/timeout`
+  - `echo 720 | sudo tee /sys/block/sda/device/eh_timeout`
+  - see `/etc/sysctl.d`
+- check SMART for the disk `sudo smartctl -a /dev/sda`
+- other articles -
+  - https://unix.stackexchange.com/questions/541463/how-to-prevent-disk-i-o-timeouts-which-cause-disks-to-disconnect-and-data-corrup
+  - https://www.snia.org/sites/default/files/SDC15_presentations/smr/HannesReinecke_Strategies_for_running_unmodified_FS_SMR.pdf
+  - https://www.usenix.org/system/files/login/articles/login_summer17_03_aghayev.pdf
+- `sudo shutdown -r now; exit`
+
 #### As minio user
 1. `wget https://dl.min.io/server/minio/release/linux-arm64/minio`
 2. `wget https://dl.min.io/server/mc/release/linux-arm64/mc`
 3. `chmod a+x minio mc`
 4. `MINIO_ROOT_USER=minio MINIO_ROOT_PASSWORD=password /home/minio/minio server /mnt/obj1data --address 0.0.0.0:9000 --console-address 0.0.0.0:9001`
+   - can be done as a script like `./start.sh` and run in a screen session
+5. actually setup buckets, users, replication, etc
+   - `./mc alias set xyz http://0.0.0.0:9000 minio xyz`
+   - `./mc update && ./mc admin update xyz/`
 
 ### Postgres
 
