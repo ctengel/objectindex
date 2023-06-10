@@ -6,7 +6,10 @@ from . import app
 from . import db
 
 class Checksum(flask_restx.fields.Raw):
-    """Render binary field from DB as hex"""
+    """Render binary field from DB as hex
+
+    Usually a 512-bit 64-byte SHA512
+    """
     def format(self, value):
         return value.hex()
 
@@ -42,7 +45,7 @@ upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
                               'partial': flask_restx.fields.Boolean(default=False),
                               'bucket':  flask_restx.fields.String(required=True),
                               'obj_size': flask_restx.fields.Integer(required=True),
-                              'checksum':  flask_restx.fields.String(required=True),
+                              'checksum':  flask_restx.fields.String(required=True),  # TODO should this be Checksum object?
                               'mime':  flask_restx.fields.String()})
 # TODO need to include S3 URL somehow here...
 obj = api.model('Object', {'ctime': flask_restx.fields.DateTime(readonly=True),
