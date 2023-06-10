@@ -99,13 +99,14 @@ Hardware and such:
 
 6. `sudo mkfs.ext4 /dev/sda1`
 7. `sudo mkdir /mnt/obj1data`
-8. `/etc/fstab`: `PARTUUID= /mnt/obj1data ext4 defaults,noatime 0 2`
+8. `sudo blkid -s PARTUUID /dev/sda1`
+9. `/etc/fstab`: `PARTUUID= /mnt/obj1data ext4 defaults,noatime 0 2`
    - set noauto to prevent attempt to mount at boot, if swapping removable drives
-9. `sudo useradd -mU minio`
+10. `sudo useradd -mU minio`
    - alternatively `groupadd -g 1234 minio; useradd -m -u 1234 -g 1234 minio` may be used to set a certain UID/GID
    - `userdel -r minio` can be used to uninstall`
-10. `sudo chown minio:minio /mnt/obj1data`
-11. `sudo apt install screen`
+11. `sudo chown minio:minio /mnt/obj1data`
+12. `sudo apt install screen`
 
 We need to periodically monitor and tune hardware:
 - `/usr/bin/vcgencmd measure_temp`
