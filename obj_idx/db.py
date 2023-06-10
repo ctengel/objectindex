@@ -20,7 +20,7 @@ class Object(db.Model):
     bucket = db.Column(db.String(63), nullable=False)
     key = db.Column(db.String(1023), nullable=False)
     obj_size = db.Column(db.BigInteger, nullable=False) # NOTE Postgres doesn't support unsigned
-    checksum = db.Column(db.LargeBinary(64), index=True)  # 64 byte sha512
+    checksum = db.Column(db.LargeBinary(32), index=True)
     ctime = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
     mime = db.Column(db.String(255))
     completed = db.Column(db.Boolean, default=False, nullable=False)
