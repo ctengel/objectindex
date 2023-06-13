@@ -29,15 +29,31 @@ class File:
             self.s3_url = s3_url
         if object_url:
             self.object_url = object_url
+    def get_s3_url(self):
+        """Return S3 object URL"""
+        assert self.s3_url
+        return self.s3_url
     def finish_upload(self):
         """Declare that an upload of this file is finished"""
-        # TODO implement
+        # NOTE this does not use ObjectIndex.put_object... maybe it should!
+        # TODO determine if this URL is correct
+        assert self.object_url
+        result = requests.put(self.object_url, json={"completed": True})
+        result.raise_for_json()
+        self.object = result.json()
+    def exists(self):
+        """Has this file already been uploaded?"""
+        assert self.object_exists is not None
+        return self.object_exists
 
 
 class ObjectIndex:
     """Interface with an ObjectIndex API instance"""
-    def __init__(self, url):
+    def __init__(self, url, user=None, sw=None, host=None):
         self.url = url
+        self.user = user
+        self.sw = sw
+        self.host = host
 
     def initiate_upload(self, url: str, bucket: str, obj_size: int, checksum: bytes,
                         direct: bool = True,
@@ -45,9 +61,6 @@ class ObjectIndex:
                         filename: str = None,
                         mime: str = None,
                         partial: bool = False,
-                        ul_user: str = None,
-                        ul_sw: str = None,
-                        ul_host: str = None,
                         extra_file: dict = None,
                         extra_object: dict = None) -> File:
         """Kick off an upload of a file with given info and return a File object"""
@@ -59,12 +72,12 @@ class ObjectIndex:
                    "partial": partial}
         if mtime:
             payload["mtime"] = mtime.isoformat()  # TODO consider timezone
-        if ul_user:
-            payload["ul_user"] = ul_user
-        if ul_sw:
-            payload["ul_sw"] = ul_sw
-        if ul_host:
-            payload["ul_host"] = ul_host
+        if self.user:
+            payload["ul_user"] = self.user
+        if self.sw:
+            payload["ul_sw"] = self.sw
+        if self.host:
+            payload["ul_host"] = self.host
         if extra_file:
             payload["extra_file"] = extra_file
         if extra_object:
