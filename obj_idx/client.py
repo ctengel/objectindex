@@ -7,6 +7,7 @@ import socket
 import pathlib
 import hashlib
 import mimetypes
+import datetime
 from . import s3lib, clilib
 
 SW_STRING = 'OIC-0.1'
@@ -35,10 +36,11 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict):
     file_stat = file_path.stat()
     file_checksum = checksum(file_path)
     file_mime = get_mime(file_path)
+    # TODO consider using file_path.resolve() instead?
     my_file = obj_idx.initiate_upload(url=f"file://{socket.gethostname()}/{file_path.absolute()}",
                                       bucket=bucket,
                                       obj_size=file_stat.st_size,
-                                      mtime=file_stat.st_mtime,
+                                      mtime=datetime.datetime.fromtimestamp(file_stat.st_mtime),  # TODO timezone???
                                       filename=file_path.name,
                                       extra_file=tags,
                                       checksum=file_checksum,

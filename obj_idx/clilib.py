@@ -41,6 +41,7 @@ class File:
         result = requests.put(self.object_url, json={"completed": True})
         result.raise_for_json()
         self.object = result.json()
+        # TODO should this update self.object_exists?
     def exists(self):
         """Has this file already been uploaded?"""
         assert self.object_exists is not None
@@ -86,7 +87,7 @@ class ObjectIndex:
             payload["filename"] = filename
         if mime:
             payload["mime"] = mime
-        result = requests.post(url + 'upload/', json=payload)
+        result = requests.post(self.url + 'upload/', json=payload)
         result.raise_for_status()
         info = result.json()
         fileobj = File(self, uuid.UUID(info['file']['uuid']))
