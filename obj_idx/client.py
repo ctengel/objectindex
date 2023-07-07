@@ -53,7 +53,7 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict):
         my_file.finish_upload()
     return my_file
 
-def get_obj_idx(url):
+def get_obj_idx(url, user):
     """Get ObjectIndex object"""
     # TODO add in user and auth
-    return clilib.ObjectIndex(url, host=socket.gethostname(), sw=SW_STRING)
+    return clilib.ObjectIndex(url, host=socket.gethostname(), sw=SW_STRING, user=user)

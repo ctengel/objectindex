@@ -23,8 +23,9 @@ def cli():
     parser_upload.add_argument('filename', nargs='+')
     parser_upload.set_defaults(func=_upload)
     oi_url = os.environ['OBJIDX_URL']
+    oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
     args = parser.parse_args()
-    args.func(client.get_obj_idx(oi_url), args)
+    args.func(client.get_obj_idx(oi_url, oi_user), args)
 
 
 if __name__ == '__main__':
