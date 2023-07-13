@@ -123,12 +123,19 @@ We need to periodically monitor and tune hardware:
 
 #### As minio user
 1. `wget https://dl.min.io/server/minio/release/linux-arm64/minio`
+   - alternatively `GO111MODULE=on go install github.com/minio/minio@latest` which will compile and install to `~/go/bin/minio`
+   - see the [official minio docs](https://min.io/docs/minio/linux/) for more
 2. `wget https://dl.min.io/server/mc/release/linux-arm64/mc`
 3. `chmod a+x minio mc`
 4. `MINIO_ROOT_USER=minio MINIO_ROOT_PASSWORD=password /home/minio/minio server /mnt/obj1data --address 0.0.0.0:9000 --console-address 0.0.0.0:9001`
    - can be done as a script like `./start.sh` and run in a screen session
 5. actually setup buckets, users, replication, etc
-   - `./mc alias set xyz http://0.0.0.0:9000 minio xyz`
+   - `./mc alias set xyz http://0.0.0.0:9000 minio password`
+     - for more info see the [mc docs](https://min.io/docs/minio/linux/reference/minio-mc/mc-alias-set.html)
+   - `./mc admin info minio`
+   - `./mc admin user add minio user password`
+   - `./mc mb minio/bucket`
+   - grant access from user to bucket
    - `./mc update && ./mc admin update xyz/`
 
 ### Postgres
