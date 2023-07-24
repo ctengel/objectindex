@@ -56,11 +56,11 @@ Hardware and such:
         static domain_name_servers=192.168.1.1
 
 4. `sudo apt update; sudo apt upgrade`
-5. `sudo parted`
+5. `sudo parted -a optimal /dev/sdX`
 
-		$ sudo parted /dev/sdb
+		$ sudo parted -a optimal /dev/sdX
 		GNU Parted 3.4
-		Using /dev/sdb
+		Using /dev/sdX
 		Welcome to GNU Parted! Type 'help' to view a list of commands.
 		(parted) help    
 		...                                                         
@@ -69,9 +69,9 @@ Hardware and such:
 		Warning: The existing disk label on /dev/sdb will be destroyed and all data on this disk will be lost. Do you want to continue?
 		Yes/No? y                                                                 
 		(parted) mkpart                                                           
-		Partition name?  []? 
+		Partition name?  []? ...
 		File system type?  [ext2]? ext4                                           
-		Start? 1                                                                  
+		Start? 0%                                                                  
 		End? 100%                                                                 
 		(parted) print                                                            
 		Model: ...
