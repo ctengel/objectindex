@@ -2,6 +2,7 @@
 
 import datetime
 import uuid
+from urllib.parse import urljoin
 import requests
 
 
@@ -36,11 +37,8 @@ class File:
     def finish_upload(self):
         """Declare that an upload of this file is finished"""
         # NOTE this does not use ObjectIndex.put_object... maybe it should!
-        # TODO determine if this URL is correct
         assert self.object_url
-        result = requests.put(self.object_url, json={"completed": True})
-        result.raise_for_json()
-        self.object = result.json()
+        self.object = self.oio.put(self.object_url, json={"completed": True})
         # TODO should this update self.object_exists?
     def exists(self):
         """Has this file already been uploaded?"""
@@ -55,6 +53,20 @@ class ObjectIndex:
         self.user = user
         self.sw = sw
         self.host = host
+
+    # TODO combine put/post/get to single function
+
+    def put(self, url, json):
+        """Run an API PUT/PATCH"""
+        result = requests.put(urljoin(self.url, url), json=json)
+        result.raise_for_status()
+        return result.json()
+
+    def post(self, url, json):
+        """Run an API POST"""
+        result = requests.post(urljoin(self.url, url), json=json)
+        result.raise_for_status()
+        return result.json()
 
     def initiate_upload(self, url: str, bucket: str, obj_size: int, checksum: bytes,
                         direct: bool = True,
@@ -87,11 +99,11 @@ class ObjectIndex:
             payload["filename"] = filename
         if mime:
             payload["mime"] = mime
-        result = requests.post(self.url + 'upload/', json=payload)
-        result.raise_for_status()
-        info = result.json()
+        info = self.post('upload/', json=payload)
         fileobj = File(self, uuid.UUID(info['file']['uuid']))
         fileobj.set_info(info['file'])
+        # NOTE the object_url is relative to the OI API URL
+        #      this is OK though because fileobj.oio.url has it
         fileobj.set_upload(exists=info['exists'],
                            s3_url=(info['download'] if info['exists'] else info['upload']['s3']),
                            object_url=(None if info['exists'] else info['upload']['finished']))

@@ -107,10 +107,10 @@ class Upload(flask_restx.Resource):
                 my_obj.extra = api.payload['extra_object']
         else:
             my_obj = db.Object(bucket=api.payload['bucket'],
-                               key="{}-{}".format(checksum.hex(), api.payload['filename']),
+                               key=f"{checksum.hex()}-{api.payload['filename']}",
                                obj_size=api.payload['obj_size'],
                                checksum=checksum,
-                               mime=api.payload['mime'],
+                               mime=api.payload.get('mime'),
                                extra=api.payload.get('extra_object'))
             db.db.session.add(my_obj)
         my_file = db.File.query.filter_by(url=api.payload['url'], file_object=my_obj).one_or_none()
@@ -141,6 +141,8 @@ class Upload(flask_restx.Resource):
         if exists:
             retobj['download'] = get_dl_url(my_obj)
         else:
+            # NOTE the s3 URL is not really a URL but a dictionary with access info
+            # NOTE the finished URL may be relative
             retobj['upload'] = {'s3': get_dl_url(my_obj),
                                 'finished': api.url_for(ObjectOne, obj_uuid=my_obj.uuid)}
         return retobj, 201

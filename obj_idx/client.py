@@ -47,8 +47,8 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict):
                                       mime=file_mime)
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
-        # TODO send checksum
         bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
+        # TODO send checksum; see https://github.com/boto/boto3/issues/3604
         bucket.upload_file(filename, s3_url['key'])
         my_file.finish_upload()
     return my_file

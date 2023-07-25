@@ -11,7 +11,7 @@ def _upload(obj_idx, args):
     for filename in args.filename:
         fileobj = client.upload(filename, obj_idx, args.bucket, tags)
         # TODO state whether it is a new upload?
-        print(args.filename, fileobj.uuid)
+        print(filename, fileobj.uuid)
 
 def cli():
     """CLI main function"""
