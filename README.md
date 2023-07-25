@@ -136,6 +136,10 @@ We need to periodically monitor and tune hardware:
    - `./mc admin user add minio user password`
    - `./mc mb minio/bucket`
    - grant access from user to bucket
+     - `vim userbucketpolicy.json` - put bucket name(s) in there
+     - `./mc admin policy add minio BUCKET-policy userbucketpolicy.json`
+     - `./mc admin policy set minio BUCKET-policy user=USER`
+     - `./mc admin user info minio christest`
    - `./mc update && ./mc admin update xyz/`
 
 ### Postgres
