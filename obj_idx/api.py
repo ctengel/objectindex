@@ -44,7 +44,6 @@ upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
                               'obj_size': flask_restx.fields.Integer(required=True),
                               'checksum':  flask_restx.fields.String(required=True),
                               'mime':  flask_restx.fields.String()})
-# TODO need to include S3 URL somehow here...
 obj = api.model('Object', {'ctime': flask_restx.fields.DateTime(readonly=True),
                            'files': flask_restx.fields.List(flask_restx.fields.Nested(abf)),
                            #'url': flask_restx.fields.String(required=True),
@@ -56,8 +55,7 @@ obj = api.model('Object', {'ctime': flask_restx.fields.DateTime(readonly=True),
                            'obj_size': flask_restx.fields.Integer(readonly=True),
                            'checksum':  Checksum(readonly=True),
                            'mime':  flask_restx.fields.String(),
-                           'uuid': flask_restx.fields.String(readonly=True)})#,
-                           #'download': flask_restx.fields.String(readonly=True)})
+                           'uuid': flask_restx.fields.String(readonly=True)})
 fil = api.model('File',  {'mtime': flask_restx.fields.DateTime(),
                           'url': flask_restx.fields.String(readonly=True),
                           'direct': flask_restx.fields.Boolean(),
@@ -195,10 +193,10 @@ class ObjectList(flask_restx.Resource):
 
 
 @objns.route('/<obj_uuid>/')
-@objns.response(404, 'File not found')
-@objns.param('obj_uuid', 'File UUID')
+@objns.response(404, 'Object not found')
+@objns.param('obj_uuid', 'Object UUID')
 class ObjectOne(flask_restx.Resource):
-    """File instance"""
+    """Object instance"""
 
     @objns.doc('get_object')
     @objns.marshal_with(obj)
@@ -216,3 +214,15 @@ class ObjectOne(flask_restx.Resource):
             myobj.completed = True
             db.db.session.commit()
         return myobj
+
+@objns.route('/<obj_uuid>/download')
+@objns.response(404, 'Object not found')
+@objns.param('obj_uuid', 'Object UUID')
+class ObjectDownload(flask_restx.Resource):
+    """Provides ways of downloading the object contents"""
+
+    @objns.doc('download_object')
+    @objns.marshal_with(s3l)
+    def get(self, obj_uuid):
+        """Get S3 download info for object"""
+        return get_dl_url(db.Object.query.get_or_404(uuid.UUID(obj_uuid)))

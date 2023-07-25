@@ -13,6 +13,12 @@ def _upload(obj_idx, args):
         # TODO state whether it is a new upload?
         print(filename, fileobj.uuid)
 
+def _download(obj_idx, args):
+    for url in args.url:
+        files = client.download(obj_idx, url)
+        for file in files:
+            print(url, file.uuid, file.get_s3_url())
+
 def cli():
     """CLI main function"""
     parser = argparse.ArgumentParser(description="Object Index client")
@@ -22,6 +28,9 @@ def cli():
     parser_upload.add_argument('-t', '--tag', action='append')
     parser_upload.add_argument('filename', nargs='+')
     parser_upload.set_defaults(func=_upload)
+    parser_download = subparsers.add_parser('download')
+    parser_download.add_argument('url', nargs='+')
+    parser_download.set_defaults(func=_download)
     oi_url = os.environ['OBJIDX_URL']
     oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
     args = parser.parse_args()

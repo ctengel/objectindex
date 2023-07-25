@@ -37,10 +37,11 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict):
     file_checksum = checksum(file_path)
     file_mime = get_mime(file_path)
     # TODO consider using file_path.resolve() instead?
-    my_file = obj_idx.initiate_upload(url=f"file://{socket.gethostname()}/{file_path.absolute()}",
+    my_file = obj_idx.initiate_upload(url=f"file://{socket.gethostname()}{file_path.absolute()}",
                                       bucket=bucket,
                                       obj_size=file_stat.st_size,
-                                      mtime=datetime.datetime.fromtimestamp(file_stat.st_mtime),  # TODO timezone???
+                                      # TODO timezone
+                                      mtime=datetime.datetime.fromtimestamp(file_stat.st_mtime),
                                       filename=file_path.name,
                                       extra_file=tags,
                                       checksum=file_checksum,
@@ -57,3 +58,14 @@ def get_obj_idx(url, user):
     """Get ObjectIndex object"""
     # TODO add in user and auth
     return clilib.ObjectIndex(url, host=socket.gethostname(), sw=SW_STRING, user=user)
+
+def download(obj_idx: clilib.ObjectIndex, url: str):
+    """Download a file with given original URL"""
+    files = obj_idx.search_files({'url': url})
+    for file in files:
+        s3_url = file.get_s3_url()
+        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
+        # TODO allow selecting target
+        bucket.download_file(s3_url['key'], s3_url['key'])
+    # TODO verify
+    return files

@@ -30,9 +30,17 @@ class File:
             self.s3_url = s3_url
         if object_url:
             self.object_url = object_url
+    def get_object_url(self):
+        """Return the OI Object URL"""
+        if not self.object_url:
+            assert self.info
+            # TODO note this is not ideal
+            self.object_url = f"/object/{self.info['file_object']['uuid']}/"
+        return self.object_url
     def get_s3_url(self):
         """Return S3 object URL"""
-        assert self.s3_url
+        if not self.s3_url:
+            self.s3_url = self.oio.get(urljoin(self.get_object_url(),'download'))
         return self.s3_url
     def finish_upload(self):
         """Declare that an upload of this file is finished"""
@@ -65,6 +73,12 @@ class ObjectIndex:
     def post(self, url, json):
         """Run an API POST"""
         result = requests.post(urljoin(self.url, url), json=json)
+        result.raise_for_status()
+        return result.json()
+
+    def get(self, url, params=None):
+        """Run an API GET"""
+        result = requests.get(urljoin(self.url, url), params=params)
         result.raise_for_status()
         return result.json()
 
@@ -112,3 +126,12 @@ class ObjectIndex:
     def put_object(self, object_uuid: uuid.UUID, info: dict):
         """PUT/PATCH an object"""
         # TODO implement
+
+    def search_files(self, params):
+        """Search for files with given parameters"""
+        files = []
+        for file in self.get('file/', params):
+            file_obj = File(self, file['uuid'])
+            file_obj.set_info(file)
+            files.append(file_obj)
+        return files
