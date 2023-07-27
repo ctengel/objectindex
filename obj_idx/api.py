@@ -159,6 +159,8 @@ class FileList(flask_restx.Resource):
         parser = flask_restx.reqparse.RequestParser()
         parser.add_argument('url')
         args = parser.parse_args()
+        if args.url.endswith('*'):
+            return db.File.query.filter(db.File.url.like(f"{args.url[:-1]}%")).all()
         return db.File.query.filter_by(url=args.url).all()
 
 

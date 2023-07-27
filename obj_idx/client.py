@@ -59,9 +59,11 @@ def get_obj_idx(url, user):
     # TODO add in user and auth
     return clilib.ObjectIndex(url, host=socket.gethostname(), sw=SW_STRING, user=user)
 
-def download(obj_idx: clilib.ObjectIndex, url: str):
+def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False):
     """Download a file with given original URL"""
     files = obj_idx.search_files({'url': url})
+    if pretend:
+        return files
     for file in files:
         s3_url = file.get_s3_url()
         bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
