@@ -36,8 +36,11 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict):
     file_stat = file_path.stat()
     file_checksum = checksum(file_path)
     file_mime = get_mime(file_path)
+
     # TODO consider using file_path.resolve() instead?
-    my_file = obj_idx.initiate_upload(url=f"file://{socket.gethostname()}{file_path.absolute()}",
+    file_base_uri = str(file_path.absolute().as_uri())
+    file_uri = f"{file_base_uri[:7]}{socket.gethostname()}{file_base_uri[7:]}"
+    my_file = obj_idx.initiate_upload(url=file_uri,
                                       bucket=bucket,
                                       obj_size=file_stat.st_size,
                                       # TODO timezone

@@ -5,6 +5,15 @@ import flask_restx
 from . import app
 from . import db
 
+ACCEPT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
+REPLACE_CHAR = "_"
+
+def sanitize_filename(requested_name):
+    """Santize a filename into a usable key"""
+    translation_table = str.maketrans({ch: REPLACE_CHAR for ch in set(requested_name) - set(ACCEPT_CHARS)})
+    return requested_name.translate(translation_table)
+
+
 class Checksum(flask_restx.fields.Raw):
     """Render binary field from DB as hex"""
     def format(self, value):
@@ -105,7 +114,7 @@ class Upload(flask_restx.Resource):
                 my_obj.extra = api.payload['extra_object']
         else:
             my_obj = db.Object(bucket=api.payload['bucket'],
-                               key=f"{checksum.hex()}-{api.payload['filename']}",
+                               key=f"{checksum.hex()}-{sanitize_filename(api.payload['filename'])}",
                                obj_size=api.payload['obj_size'],
                                checksum=checksum,
                                mime=api.payload.get('mime'),
@@ -160,6 +169,7 @@ class FileList(flask_restx.Resource):
         parser.add_argument('url')
         args = parser.parse_args()
         if args.url.endswith('*'):
+            # TODO escape %20 etc
             return db.File.query.filter(db.File.url.like(f"{args.url[:-1]}%")).all()
         return db.File.query.filter_by(url=args.url).all()
 
