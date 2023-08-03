@@ -10,7 +10,8 @@ REPLACE_CHAR = "_"
 
 def sanitize_filename(requested_name):
     """Santize a filename into a usable key"""
-    translation_table = str.maketrans({ch: REPLACE_CHAR for ch in set(requested_name) - set(ACCEPT_CHARS)})
+    translation_table = str.maketrans({ch: REPLACE_CHAR
+                                       for ch in set(requested_name) - set(ACCEPT_CHARS)})
     return requested_name.translate(translation_table)
 
 
@@ -167,7 +168,13 @@ class FileList(flask_restx.Resource):
         """Search for a file"""
         parser = flask_restx.reqparse.RequestParser()
         parser.add_argument('url')
+        parser.add_argument('extra')
         args = parser.parse_args()
+        assert not (args.url and args.extra)
+        if args.extra:
+            parts = args.extra.partition('=')
+            assert parts[1] == '='
+            return db.File.query.filter_by(db.File.extra[parts[0]] == parts[1]).all()
         if args.url.endswith('*'):
             # TODO escape %20 etc
             return db.File.query.filter(db.File.url.like(f"{args.url[:-1]}%")).all()
