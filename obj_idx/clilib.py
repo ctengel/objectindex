@@ -136,14 +136,18 @@ class ObjectIndex:
             files.append(file_obj)
         return files
 
-    def get_file(self, fileid):
+    def get_file(self, fileid, with_info=True):
         """Get file object for given UUID"""
-        return File(self, fileid)
+        myfile = File(self, fileid)
+        if with_info:
+            info = self.get(f"file/{fileid}")
+            myfile.set_info(info)
+        return myfile
 
     def get_object(self, objid):
         """Get object dictionary for given UUID"""
-        return self.get(f"/object/{objid}/")
+        return self.get(f"object/{objid}/")
 
     def search_object(self, checksum):
         """Get all objects with given checksum"""
-        return self.get("/object/", params={'checksum': checksum})
+        return self.get("object/", params={'checksum': checksum})

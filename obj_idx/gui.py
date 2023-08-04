@@ -31,11 +31,15 @@ def home():
     return flask.render_template('home.html')
 
 @app.route("/file/<fileid>")
-def show_file(file_id):
+def show_file(fileid):
     """Display details about a file"""
     objidx = get_api()
-    myfile = objidx.get_file(file_id)
-    return flask.render_template('file.html', fo=myfile)
+    myfile = objidx.get_file(fileid)
+    tags = []
+    for key, value in myfile.info['extra'].items():
+        if isinstance(value, str):
+            tags.append({"key": key, "value": value})
+    return flask.render_template('file.html', fo=myfile, tags=tags)
 
 @app.route("/object/<objectid>/")
 def show_object(objectid):
@@ -55,7 +59,12 @@ def search_files():
     playlist = (flask.request.args.get('playlist', 'off') == 'on')
     random = (flask.request.args.get('playlist', 'off') == 'on')
     url = flask.request.args.get('url')
-    extra = flask.request.args.get('extra')
+    extra = None
+    if flask.request.args.get('extrak'):
+        assert flask.request.args.get('extrav')  # TODO relax to allow bool
+        extra = f"{flask.request.args.get('extrak')}={flask.request.args.get('extrav')}"
+    else:
+        assert not flask.request.args.get('extrav')
     uuid = flask.request.args.get('uuid')
     if uuid:
         assert not extra

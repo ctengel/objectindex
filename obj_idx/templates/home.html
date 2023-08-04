@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>{% block title %}Home{% endblock %}</h1>
+<ul>
+	<li>
+		<form action="{{ url_for('search_files') }}">
+			<label for="url">URL:</label>
+			<input name="url" id="url" />
+			<input type="submit" />
+		</form>
+	</li>
+	<li>
+		<form action="{{ url_for('search_objects') }}">
+			<label for="checksum">SHA256:</label>
+			<input name="checksum" id="checksum" />
+			<input type="submit" />
+		</form>
+	</li>
+	<li>
+		<form action="{{ url_for('search_files') }}">
+			Tag:
+			<input name="extrak" id="extrak" />
+			=
+			<input name="extrav" id="extrav" />
+			<input type="submit" />
+		</form>
+	</li>
+	<li>
+		<form action="{{ url_for('search_files') }}">
+			<label for="fuuid">File UUID:</label>
+			<input name="uuid" id="fuuid" />
+			<input type="submit" />
+		</form>
+	</li>
+	<li>
+		<form action="{{ url_for('search_objects') }}">
+			<label for="ouuid">Object UUID:</label>
+			<input name="uuid" id="ouuid" />
+			<input type="submit" />
+		</form>
+	</li>
+
+</ul>
+
+{% endblock %}

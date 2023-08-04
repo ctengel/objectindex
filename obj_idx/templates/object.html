@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<h1>{% block title %}Object {{ oo.checksum }}{% endblock %}</h1>
+
+<ul>
+{% for fo in oo.files %}
+	<li><a href="{{ url_for('show_file', fileid=fo.uuid) }}">{{ fo.url }}</a></li>
+{% endfor %}
+</ul>
+
+{% endblock %}

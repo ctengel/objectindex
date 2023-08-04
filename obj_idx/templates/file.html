@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<h1>{% block title %}File {{ fo.url }}{% endblock %}</h1>
+
+<p>Viewer</p>
+<ul>
+	<li>My directory (link list and next)</li>
+	{% for tag in tags %}
+	<li><a href="{{ url_for('search_files', extrak=tag.key, extrav=tag.value) }}">{{ tag.key }} = {{tag.value}}</a></li>
+	{% endfor %}
+	{% for tag in fo.extra %}
+	<li>{{ tag }} (link list and next)</li>
+	{% endfor %}
+</ul>
+
+<p><a href="{{ url_for('download_object', objectid=fo.object.uuid) }}">Download</a></p>
+<ul>
+	<li>Up</li>
+	<li>Other files</li>
+	<li>Other info: {{ fo.info }}</li>
+</ul>
+
+{% endblock %}
