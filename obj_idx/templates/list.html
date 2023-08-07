@@ -10,8 +10,11 @@
 </ul>
 
 <ul>
+{% if up %}
+	<li><a href="{{ url_for('search_files', url=up) }}">Up</a></li>
+{% endif %}
 {% for fo in fos %}
-	<li><a href="{{ url_for('show_file', fileid=fo.uuid) }}">{{ fo.url }}</a></li>
+	<li><a href="{{ url_for('show_file', fileid=fo.uuid) }}">{{ fo.info.url }}</a></li>
 {% endfor %}
 </ul>
 

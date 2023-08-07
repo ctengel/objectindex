@@ -1,5 +1,7 @@
 """Object Index GUI"""
 
+from urllib.parse import urlparse, urlunparse
+from pathlib import PurePath
 import flask
 from . import client
 
@@ -15,7 +17,7 @@ def get_api():
 
 def close_api(e=None):
     """Remove obj_index api object"""
-    oiapi = flask.g.pop('oiapi', None)
+    _ = flask.g.pop('oiapi', None)
 
     #if  is not None:
     #    db.close()
@@ -24,6 +26,26 @@ app = flask.Flask(__name__)
 app.config.from_envvar('OBJIDX_GUI_SETTINGS')
 
 app.teardown_appcontext(close_api)
+
+
+def up_url(fullurl):
+    """Generate the "up" URL for a given URL"""
+    parsed = urlparse(fullurl)
+    assert parsed.scheme
+    assert not parsed.params
+    if parsed.scheme == 'file':
+        assert "." not in parsed.netloc
+        assert not parsed.query
+        assert not parsed.fragment
+        if parsed.path.endswith('*'):
+            newpath = str(PurePath(parsed.path).parent.parent.joinpath('*'))
+        else:
+            newpath = str(PurePath(parsed.path).parent.joinpath('*'))
+        return urlunparse(('file', parsed.netloc, newpath, None, None, None))
+    assert "." in parsed.netloc
+    return urlunparse((parsed.scheme, parsed.netloc, '*', None, None, None))
+
+
 
 @app.route("/")
 def home():
@@ -39,7 +61,7 @@ def show_file(fileid):
     for key, value in myfile.info['extra'].items():
         if isinstance(value, str):
             tags.append({"key": key, "value": value})
-    return flask.render_template('file.html', fo=myfile, tags=tags)
+    return flask.render_template('file.html', fo=myfile, tags=tags, up=up_url(myfile.info['url']))
 
 @app.route("/object/<objectid>/")
 def show_object(objectid):
@@ -49,7 +71,7 @@ def show_object(objectid):
     numfiles = len(myobj['files'])
     if numfiles == 1:
         # TODO 302,303,307
-        return flask.redirect(flask.url_for(show_file, fileid=myobj['files'][0]['uuid']))
+        return flask.redirect(flask.url_for('show_file', fileid=myobj['files'][0]['uuid']))
     #TODO 200 or 300
     return flask.render_template('object.html', oo=myobj)
 
@@ -72,18 +94,25 @@ def search_files():
         assert not random
         assert not playlist
         # TODO consider 308
-        return flask.redirect(flask.url_for(show_file, fileid=uuid), 301)
+        return flask.redirect(flask.url_for('show_file', fileid=uuid), 301)
     assert url or extra
     assert not (url and extra)
     objidx = get_api()
     result_list = objidx.search_files({'url': url, 'extra': extra})
     if random and result_list:
         assert not playlist
-        return flask.redirect(flask.url_for(show_file, fileid=random.choice(result_list).uuid))
+        return flask.redirect(flask.url_for('show_file', fileid=random.choice(result_list).uuid))
     if playlist:
         assert False
         # TODO return playlist
-    return flask.render_template('list.html', fos=result_list)
+    up_star = None
+    param = None
+    if url:
+        up_star = up_url(url)
+        param = url
+    if extra:
+        param = extra
+    return flask.render_template('list.html', fos=result_list, up=up_star, param=param)
 
 
 @app.route("/object/")
@@ -93,11 +122,11 @@ def search_objects():
     uuid = flask.request.args.get('uuid')
     if uuid:
         assert not checksum
-        return flask.redirect(flask.url_for(show_object, objectid=uuid), 301)
+        return flask.redirect(flask.url_for('show_object', objectid=uuid), 301)
     assert checksum
     objidx = get_api()
     objobj = objidx.search_object(checksum)[0]
-    return flask.redirect(flask.url_for(show_object, objectid=objobj['uuid']))
+    return flask.redirect(flask.url_for('show_object', objectid=objobj['uuid']))
 
 @app.route("/object/<objectid>/download")
 def download_object(objectid):
