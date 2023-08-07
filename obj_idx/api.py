@@ -175,7 +175,7 @@ class FileList(flask_restx.Resource):
             parts = args.extra.partition('=')
             assert parts[1] == '='
             # TODO fix this - currently comes up with 0 results
-            return db.File.query.filter(db.File.extra[parts[0]] == parts[2]).all()
+            return db.File.query.filter(db.File.extra[parts[0]].astext == parts[2]).all()
         if args.url.endswith('*'):
             # TODO escape %20 etc
             return db.File.query.filter(db.File.url.like(f"{args.url[:-1]}%")).all()
