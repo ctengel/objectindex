@@ -39,6 +39,7 @@ class File:
         return self.object_url
     def get_s3_url(self):
         """Return S3 object URL"""
+        # TODO merge with oio.get_presigned
         if not self.s3_url:
             self.s3_url = self.oio.get(urljoin(self.get_object_url(),'download'))
         return self.s3_url
@@ -151,3 +152,8 @@ class ObjectIndex:
     def search_object(self, checksum):
         """Get all objects with given checksum"""
         return self.get("object/", params={'checksum': checksum})
+
+    def get_presigned(self, objid):
+        """Get presigned URL for a given object"""
+        # TODO merge with File.get_s3
+        return self.get(f"object/{objid}/download", params={"presigned":"true"})["presigned"]

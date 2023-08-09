@@ -27,7 +27,7 @@ def url2epcred(url):
     assert not parsed.query
     assert not parsed.fragment
     endpoint = urllib.parse.urlunparse((parsed.scheme,
-                                        "{}:{}".format(parsed.hostname, parsed.port),
+                                        f"{parsed.hostname}:{parsed.port}",
                                         parsed.path,
                                         None,
                                         None,
@@ -38,3 +38,18 @@ def url2epcred(url):
 def get_s3_service_url(url):
     """Returns a boto S3 Service Resource using a pseudo URL"""
     return get_s3_service(*url2epcred(url))
+
+def get_s3_client_low(url):
+    """Low level S3 client"""
+    endpoint, key = url2epcred(url)
+    return boto3.client('s3',
+                        endpoint_url=endpoint,
+                        aws_access_key_id=key[0],
+                        aws_secret_access_key=key[1],
+                        config=boto3.session.Config(signature_version='s3v4'))
+
+def presigned(s3_obj, bucket, key, method="get", expires=3600):
+    """Given an S3 object, a bucket, and a key, generate a presigned URL for that"""
+    return s3_obj.generate_presigned_url(f"{method}_object",
+                                         {"Bucket": bucket, "Key": key},
+                                         expires)

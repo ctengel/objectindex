@@ -4,6 +4,7 @@ import uuid
 import flask_restx
 from . import app
 from . import db
+from . import s3lib
 
 ACCEPT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 REPLACE_CHAR = "_"
@@ -37,7 +38,8 @@ abf = api.model('BriefFile', {'uuid': flask_restx.fields.String(readonly=True),
                               #'link': flask_restx.fields.String(readonly=True)})
 s3l = api.model('S3Link', {'server': flask_restx.fields.String(),
                            'bucket': flask_restx.fields.String(),
-                           'key': flask_restx.fields.String()})
+                           'key': flask_restx.fields.String(),
+                           'presigned': flask_restx.fields.String()})
 ull = api.model('UploadLinks', {'finished': flask_restx.fields.String(readonly=True),
                                's3': flask_restx.fields.Nested(s3l, readonly=True)})
 upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
@@ -88,6 +90,12 @@ def get_dl_url(objobj):
     return {'server': app.config['OBJIDX_S3'],
             'bucket': objobj.bucket,
             'key': objobj.key}
+
+
+def get_s3_obj():
+    """Get an S3 object"""
+    # TODO cache this?
+    return s3lib.get_s3_client_low(app.config['OBJIDX_S3'])
 
 # flask_restx.fields.Integer(readonly=True, description='Task ID'),
 
@@ -162,7 +170,9 @@ class FileList(flask_restx.Resource):
 
     @filns.doc('search_files',
                params={'url': {'description': 'Source URL to search for',
-                               'type': 'string'}})
+                               'type': 'string'},
+                       'extra': {'description': 'Tags in file extra JSON to look for',
+                                 'type': 'string'}})
     @filns.marshal_list_with(fil)
     def get(self):
         """Search for a file"""
@@ -241,8 +251,16 @@ class ObjectOne(flask_restx.Resource):
 class ObjectDownload(flask_restx.Resource):
     """Provides ways of downloading the object contents"""
 
-    @objns.doc('download_object')
+    @objns.doc('download_object',
+               params={'presigned': {'description': 'Presigned HTTP URL instead of plain S3',
+                                     'type': 'boolean'}})
     @objns.marshal_with(s3l)
     def get(self, obj_uuid):
         """Get S3 download info for object"""
-        return get_dl_url(db.Object.query.get_or_404(uuid.UUID(obj_uuid)))
+        parser = flask_restx.reqparse.RequestParser()
+        parser.add_argument('presigned')
+        args = parser.parse_args()
+        db_obj = db.Object.query.get_or_404(uuid.UUID(obj_uuid))
+        if args.presigned:
+            return {'presigned': s3lib.presigned(get_s3_obj(), db_obj.bucket, db_obj.key)}
+        return get_dl_url(db_obj)

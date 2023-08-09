@@ -4,7 +4,18 @@
 
 <h1>{% block title %}File {{ fo.info.url }}{% endblock %}</h1>
 
-<p>Viewer</p>
+{% if preview == "img" %}
+<div><img src="{{ url_for('download_object', objectid=fo.object.uuid) }}" alt="{{ fo.info.url }}" /></div>
+{% endif %}
+
+{% if preview == "video" %}
+<div><video controls="controls"><source src="{{ url_for('download_object', objectid=fo.object.uuid) }}" type="{{fo.object.mime}}" />Video preview; alternatively you may download below.</video></div>
+{% endif %}
+
+{% if preview == "audio" %}
+<div><audio src="{{ url_for('download_object', objectid=fo.object.uuid) }}" controls="controls">audio preview; alternatively you may download below.</audio></div>
+{% endif %}
+
 <h2>Navigation</h2>
 <ul>
 	<li><a href="{{ url_for('search_files', url=up) }}">My directory / up</a> (link list and next)</li>

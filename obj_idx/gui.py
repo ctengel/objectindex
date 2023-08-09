@@ -61,7 +61,19 @@ def show_file(fileid):
     for key, value in myfile.info['extra'].items():
         if isinstance(value, str):
             tags.append({"key": key, "value": value})
-    return flask.render_template('file.html', fo=myfile, tags=tags, up=up_url(myfile.info['url']))
+    preview = None
+    if myfile.info['file_object']['mime']:
+        if myfile.info['file_object']['mime'].startswith('video/'):
+            preview = 'video'
+        if myfile.info['file_object']['mime'].startswith('audio/'):
+            preview = 'audio'
+        if myfile.info['file_object']['mime'].startswith('image/'):
+            preview = 'img'
+    return flask.render_template('file.html',
+                                 fo=myfile,
+                                 tags=tags,
+                                 up=up_url(myfile.info['url']),
+                                 preview=preview)
 
 @app.route("/object/<objectid>/")
 def show_object(objectid):
@@ -131,6 +143,5 @@ def search_objects():
 @app.route("/object/<objectid>/download")
 def download_object(objectid):
     """Redirect to presigned S3 URL for object"""
-    assert False
-    # stream or presigned
-    # TODO see #22 / #13
+    objidx = get_api()
+    return flask.redirect(objidx.get_presigned(objectid))
