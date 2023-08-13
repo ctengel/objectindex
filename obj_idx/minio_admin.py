@@ -7,14 +7,16 @@ import pathlib
 import os
 import tempfile
 import json
+import secrets
+import datetime
 import minio
 
 
 class MinIO:
     """deal with minio bucket creations and permissions"""
-    def __init__(self, alias, endpoint, user, password):
-        self.mioc = minio.Minio(endpoint, user, password)
-        self.mioa = minio.MinioAdmin(alias)
+    def __init__(self, alias, endpoint, user, password, mc_path=None):
+        self.mioc = minio.Minio(endpoint, user, password, secure=False)
+        self.mioa = minio.MinioAdmin(alias, binary_path=mc_path)
     def create_bucket(self, bucket_name: str):
         """Create a bucket"""
         self.mioc.make_bucket(bucket_name)
@@ -22,7 +24,7 @@ class MinIO:
         self.mioa.policy_add(policy_name, policy_doc)
     @staticmethod
     def _policy_file(policy_data: dict) -> str:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as policy_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as policy_file:
             json.dump(policy_data, policy_file)
             policy_file_name = policy_file.name
         return policy_file_name
@@ -39,7 +41,7 @@ class MinIO:
         if not actions:
             actions = ["s3:ListBucket", "s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
         return {'Version': '2012-10-17',
-                'Stetement': [{'Effect': 'Allow',
+                'Statement': [{'Effect': 'Allow',
                                'Action': actions,
                                'Resource': [f"arn:aws:s3:::{bucket}"
                                             for bucket in bucket_names] +
@@ -76,7 +78,7 @@ class MinIO:
 def _setup(mioo, args):
     password = secrets.token_urlsafe()
     print(f"Password: {password}")
-    mioo.user_add(args.username, password)
+    mioo.add_user(args.username, password)
     today = datetime.date.today().strftime("%Y%m%d")
     for bucket in args.buckets:
         mioo.bucket_with_users(f"{bucket}-{today}", [args.username])
@@ -85,14 +87,20 @@ def cli():
     """CLI main function"""
     parser = argparse.ArgumentParser(description="Object Index MinIO admin")
     subparsers = parser.add_subparsers()
+    parser.add_argument('-a', '--alias')
+    parser.add_argument('-e', '--endpoint')
+    parser.add_argument('-m', '--mc-path')
     parser_setup = subparsers.add_parser('setup')
     parser_setup.add_argument('username')
     parser_setup.add_argument('buckets', nargs='+')
-    parser_upload.set_defaults(func=_setup)
-    oi_url = os.environ['OBJIDX_URL']
-    oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
+    parser_setup.set_defaults(func=_setup)
     args = parser.parse_args()
-    args.func(client.get_obj_idx(oi_url, oi_user), args)
+    args.func(MinIO(args.alias,
+                    args.endpoint,
+                    os.environ['MINIO_ROOT_USER'],
+                    os.environ['MINIO_ROOT_PASSWORD'],
+                    mc_path=args.mc_path),
+              args)
 
 
 if __name__ == '__main__':
