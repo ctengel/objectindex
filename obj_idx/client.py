@@ -29,7 +29,7 @@ def get_mime(file_path: pathlib.Path) -> str:
     # TODO add magic from mediacrawler
     return mimetypes.guess_type(file_path)[0]
 
-def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict):
+def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict) -> clilib.File:
     """Run an actual file upload into ObjIdx and S3"""
     # TODO consider refactoring information gathering with mediacrawler fs.File.get_media()
     file_path = pathlib.Path(filename)
@@ -62,7 +62,7 @@ def get_obj_idx(url, user):
     # TODO add in user and auth
     return clilib.ObjectIndex(url, host=socket.gethostname(), sw=SW_STRING, user=user)
 
-def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False):
+def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False) -> list[clilib.File]:
     """Download a file with given original URL"""
     files = obj_idx.search_files({'url': url})
     if pretend:
@@ -74,3 +74,67 @@ def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False):
         bucket.download_file(s3_url['key'], s3_url['key'])
     # TODO verify
     return files
+
+def upload_metadata(filename: str,
+                    obj_idx: clilib.ObjectIndex,
+                    bucket: str,
+                    url: str,
+                    mtime: datetime.datetime = None,
+                    direct: bool = True,
+                    partial: bool = False,
+                    library: str = None,
+                    person: str = None,
+                    media: str = None,
+                    ytdl_info: dict = None,
+                    extra: dict = None) -> clilib.File:
+    """Upload file with metadata"""
+    # TODO refactor with upload() and future upload stream/new
+    file_path = pathlib.Path(filename)
+    file_stat = file_path.stat()
+    file_checksum = checksum(file_path)
+    file_mime = get_mime(file_path)
+
+    if not extra:
+        extra = {}
+    if library:
+        library = library.upper()
+        if person:
+            person = f"{library}{person.lower()}"
+        if media:
+            media = f"{library}{media.lower()}"
+        extra['lpm-lib'] = library
+        extra['lpm-per'] = person
+        extra['lpm-med'] = media
+    else:
+        assert not person
+        assert not media
+    if ytdl_info:
+        extra['ytdl-info'] = ytdl_info
+        extra['ytdl-extractor'] = ytdl_info['extractor_key'].lower()
+        extra['ytdl-id'] = f"{ytdl_info['extractor_key'].lower()} {ytdl_info['id']}"
+        if not mtime:
+            mtime = datetime.datetime.fromtimestamp(ytdl_info['timestamp'])
+    else:
+        extra['ytdl-info'] = None
+
+    if not mtime:
+        mtime = datetime.datetime.fromtimestamp(file_stat.st_mtime)
+
+    my_file = obj_idx.initiate_upload(url=url,
+                                      bucket=bucket,
+                                      obj_size=file_stat.st_size,
+                                      # TODO timezone
+                                      mtime=mtime,
+                                      filename=file_path.name,
+                                      extra_file=extra,
+                                      checksum=file_checksum,
+                                      mime=file_mime,
+                                      direct=direct,
+                                      partial=partial)
+    if not my_file.exists():
+        s3_url = my_file.get_s3_url()
+        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
+        # TODO send checksum; see https://github.com/boto/boto3/issues/3604
+        bucket.upload_file(filename, s3_url['key'])
+        my_file.finish_upload()
+    return my_file
