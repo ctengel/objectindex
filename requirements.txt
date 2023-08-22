@@ -1,2 +1,6 @@
 flask-sqlalchemy
 flask
+flask-restx
+requests
+minio
+boto3

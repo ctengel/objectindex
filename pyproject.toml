@@ -1,0 +1,32 @@
+[project]
+name = "objectindex"
+version = "0.1"
+description = "Object Index allows you to index your objexts in S3"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [{name = "ctengel"}]
+keywords = ["object", "s3"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha", 
+  "Environment :: Web Environment",
+  "Natural Language :: English"
+]
+dependencies = [
+  'flask-sqlalchemy',
+  'flask',
+  'flask-restx',
+  'requests',
+  'minio',
+  'boto3'
+]
+
+[project.urls]
+repository = "https://github.com/ctengel/objectindex"
+
+[project.scripts]
+obj-idx-client = "obj_idx.cli:cli"
+obj-idx-admin = "obj_idx.minio_admin:cli"
+
+[tool.setuptools.packages.find]
+include = ["obj_idx"]
