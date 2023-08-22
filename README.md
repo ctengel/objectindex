@@ -17,6 +17,22 @@ Inspired by projects like:
 
 Consume S3 API(s) (from MinIO or the like) and expose a rich metadata store.
 
+## Setup and usage
+
+`pip3 install https://github.com/ctengel/objectindex/archive/refs/heads/main.zip`
+
+There are then a few different ways to use this:
+- RESTful API: `FLASK_APP=obj_idx.api OBJIDX_SETTINGS=/path/to/api.cfg flask run`
+  - need minio running first and setup
+    - see `obj-idx-admin setup`
+  - need postgres running and setup
+    - see `OBJIDX_SETTINGS=/path/to/api.cfg python3 -m obj_idx.db_create`
+  - need API config file (see below)
+- GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 5001`
+  - need GUI config file (see below)
+- CLI client: `obj-idx-client`
+
+
 ## Interim infrastructure
 
 Hardware and such:
@@ -150,19 +166,27 @@ Some info on getting PostgreSQL running on Fedora:
   - https://docs.fedoraproject.org/en-US/quick-docs/postgresql/
   - `/usr/share/doc/postgresql/README.rpm-dist`
 
+Initial steps to be performed as a sudoer:
 ```
 sudo dnf install postgresql-server
 sudo postgresql-setup --initdb
 sudo systemctl start postgresql
-sudo su -c "createuser USER" postgres
+sudo su -c "createuser -P USER" postgres  # note you will be prompted to create a password
 sudo su -c "createdb -O USER DB" postgres
+```
+
+Following steps to be run as user who will run the API.
+```
 OBJIDX_SETTINGS=../samp.cfg python3 -m obj_idx.db_create
 pg_dump --schema-only DB > schema.sql
 ```
 
 The `db_create.py` script will empty a database and create tables in the schema, and uses the same config file as the web app.
 
-## Config file
+## Config files
+
+
+### API
 
 ```
 DEBUG = True
@@ -175,3 +199,11 @@ OBJIDX_BUCKETS = ['bucket1']
 - `OBJIDX_S3` is a special URL for S3
 - `OBJIDX_BUCKETS` is a list of buckets that may be used.
 - The rest are standard Flask and sqlalchemy options
+
+### GUI
+
+```
+DEBUG = True
+OBJIDX_URL="http://127.0.0.1:5000/"  # change if running on a different host
+OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideally pass thru in fut
+```
