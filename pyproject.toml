@@ -1,6 +1,6 @@
 [project]
 name = "objectindex"
-version = "0.1"
+version = "0.1.1"
 description = "Object Index allows you to index your objexts in S3"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -13,12 +13,12 @@ classifiers = [
   "Natural Language :: English"
 ]
 dependencies = [
-  'flask-sqlalchemy',
-  'flask',
-  'flask-restx',
-  'requests',
-  'minio',
-  'boto3'
+  'flask-sqlalchemy >= 2.5',
+  'flask >= 2.1',
+  'flask-restx >= 1.0',
+  'requests >= 2.27',
+  'minio >= 7.1.16',
+  'boto3 >= 1.22'
 ]
 
 [project.urls]
