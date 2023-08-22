@@ -158,6 +158,33 @@ We need to periodically monitor and tune hardware:
      - `./mc admin user info minio christest`
    - `./mc update && ./mc admin update xyz/`
 
+#### systemd for minio
+
+`$ systemctl list-units | grep '/path/to/objectstore' | awk '{ print $1 }'`
+
+`/etc/systemd/system/minio.service`:
+
+```
+[Unit]
+Description=MinIO Object Storage Service
+After=network-online.target objectstoremountpoint.mount
+
+[Service]
+ExecStart=/home/minio/start.sh
+WorkingDirectory=/home/minio
+User=minio
+Group=minio
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```
+$ sudo systemctl start minio
+$ sudo systemctl status minio
+$ sudo systemctl enable minio
+```
+
 ### Postgres
 
 Some info on getting PostgreSQL running on Fedora:
