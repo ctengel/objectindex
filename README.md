@@ -22,13 +22,13 @@ Consume S3 API(s) (from MinIO or the like) and expose a rich metadata store.
 `pip3 install https://github.com/ctengel/objectindex/archive/refs/heads/main.zip`
 
 There are then a few different ways to use this:
-- RESTful API: `FLASK_APP=obj_idx.api OBJIDX_SETTINGS=/path/to/api.cfg flask run`
+- RESTful API: `FLASK_APP=obj_idx.api OBJIDX_SETTINGS=/path/to/api.cfg flask run --host=0.0.0.0`
   - need minio running first and setup
     - see `obj-idx-admin setup`
   - need postgres running and setup
     - see `OBJIDX_SETTINGS=/path/to/api.cfg python3 -m obj_idx.db_create`
   - need API config file (see below)
-- GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 5001`
+- GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 5001 --host=0.0.0.0`
   - need GUI config file (see below)
 - CLI client: `obj-idx-client`
 
@@ -201,6 +201,8 @@ sudo systemctl start postgresql
 sudo su -c "createuser -P USER" postgres  # note you will be prompted to create a password
 sudo su -c "createdb -O USER DB" postgres
 ```
+
+Note also that modifying `/var/lib/pgsql/data/pg_hba.conf` to include `scram-sha-256` instead of `ident` etc may be needed.
 
 Following steps to be run as user who will run the API.
 ```
