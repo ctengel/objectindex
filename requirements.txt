@@ -4,3 +4,4 @@ flask-restx >= 1.0
 requests >= 2.27
 minio >= 7.1.16
 boto3 >= 1.22
+psycopg2 >= 2.9
