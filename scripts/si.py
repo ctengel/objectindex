@@ -19,7 +19,9 @@ def upload(objidx, metadata, bucket, base_url, pretend=False):
     if not metadata['versionHigh']:
         qualmod = 'low/'
     url = base_url + qualmod + filename
-    person = metadata['videoName'].rstrip(string.digits).rstrip()
+    person = metadata['videoName'].rstrip(string.digits).rstrip().removesuffix(' all').removesuffix(' car').removesuffix(' Interview').removeprefix('Images ')
+    if person in ['Early Models', 'UK', 'Volume']:
+        person = None
     media = metadata['siteName'] + '-' + metadata['videoName'].replace(" ", "")
     mtime = None
     if metadata['updatedDate']:
