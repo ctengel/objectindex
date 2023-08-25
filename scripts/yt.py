@@ -6,6 +6,7 @@ import argparse
 import os
 import json
 import pathlib
+import warnings
 from obj_idx import client
 
 
@@ -57,6 +58,8 @@ def do_info_json(objidx, info_json, bucket, pretend=False, partial=False, librar
     Specify library if uploader is a person
     """
     parsed_json = read_info_json(info_json)
+    if parsed_json.get('_type') == 'playlist':
+        warnings.warn(f"Skipping playlist {info_json}")
     extension = parsed_json.get('ext')
     assert extension
     base_file_name = info_json.removesuffix('.info.json')
