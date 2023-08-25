@@ -44,7 +44,7 @@ def upload(objidx, metadata, bucket, base_url, pretend=False):
 def _cli():
     parser = argparse.ArgumentParser(description="Object Index SI uploader")
     parser.add_argument('-b', '--bucket')
-    parser.add_argument('-u', '--base-url',)
+    parser.add_argument('-u', '--base-url')
     parser.add_argument('-p', '--pretend', action='store_true')
     parser.add_argument('filename')
     oi_url = os.environ['OBJIDX_URL']
