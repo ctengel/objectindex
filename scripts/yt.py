@@ -66,7 +66,9 @@ def do_info_json(objidx, info_json, bucket, pretend=False, partial=False, librar
     base_file_name = info_json.removesuffix('.info.json')
     assert base_file_name != info_json
     media_file = base_file_name + "." + extension
-    assert pathlib.Path(media_file).exists()
+    if not pathlib.Path(media_file).exists():
+        warnings.warn(f"Skipping nonexistant file {media_file}")
+        return
     upload(objidx, parsed_json, media_file, bucket, pretend, partial, library)
 
 
