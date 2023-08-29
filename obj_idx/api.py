@@ -119,7 +119,7 @@ class Upload(flask_restx.Resource):
                 # TODO handle retry
                 flask_restx.abort(409,
                                   "Conflict: an upload of an object with the same checksum may currently be in progress",
-                                  object_uuid=my_obj.uuid)
+                                  object_uuid=str(my_obj.uuid))
             assert not my_obj.deleted
             if api.payload['mime'] and not my_obj.mime:
                 my_obj.mime = api.payload['mime']
