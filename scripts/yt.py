@@ -47,6 +47,9 @@ def upload(objidx, metadata, filename, bucket, pretend=False, partial=False, lib
                                   library=library,
                                   person=person,
                                   media=media)
+    if not flob:
+        warnings.warn(f"Possible conflict for {filename}; upload failed")
+        return None
     print(flob.uuid)
     return flob
 

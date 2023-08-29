@@ -115,7 +115,11 @@ class Upload(flask_restx.Resource):
         if my_obj:
             exists = True
             assert my_obj.obj_size == api.payload['obj_size']
-            assert my_obj.completed
+            if not my_obj.completed:
+                # TODO handle retry
+                flask_restx.abort(409,
+                                  "Conflict: an upload of an object with the same checksum may currently be in progress",
+                                  object_uuid=my_obj.uuid)
             assert not my_obj.deleted
             if api.payload['mime'] and not my_obj.mime:
                 my_obj.mime = api.payload['mime']

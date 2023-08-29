@@ -6,6 +6,7 @@ import pathlib
 import string
 import os
 import argparse
+import warnings
 from obj_idx import client
 
 LIBRARY = 'SSW'
@@ -27,6 +28,9 @@ def one_file(objidx, filename, bucket, base_url, pretend=False):
                                   library=LIBRARY,
                                   person=person,
                                   media=media)
+    if not flob:
+        warnings.warn(f"Possible conflict for {filename}; upload failed")
+        return None
     print(flob.uuid)
     return flob
 

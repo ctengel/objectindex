@@ -8,6 +8,7 @@ import pathlib
 import hashlib
 import mimetypes
 import datetime
+import warnings
 from . import s3lib, clilib
 
 SW_STRING = 'OIC-0.1'
@@ -120,17 +121,23 @@ def upload_metadata(filename: str,
     if not mtime:
         mtime = datetime.datetime.fromtimestamp(file_stat.st_mtime)
 
-    my_file = obj_idx.initiate_upload(url=url,
-                                      bucket=bucket,
-                                      obj_size=file_stat.st_size,
-                                      # TODO timezone
-                                      mtime=mtime,
-                                      filename=file_path.name,
-                                      extra_file=extra,
-                                      checksum=file_checksum,
-                                      mime=file_mime,
-                                      direct=direct,
-                                      partial=partial)
+    try:
+        my_file = obj_idx.initiate_upload(url=url,
+                                          bucket=bucket,
+                                          obj_size=file_stat.st_size,
+                                          # TODO timezone
+                                          mtime=mtime,
+                                          filename=file_path.name,
+                                          extra_file=extra,
+                                          checksum=file_checksum,
+                                          mime=file_mime,
+                                          direct=direct,
+                                          partial=partial)
+    except clilib.requests.HTTPError as e:
+        if e.response.status_code != 409:
+            raise e
+        warnings.warn(f"Conflict for file {url} {file_checksum}... existing object {e.response.json()['object_uuid']}")
+        return None
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
         bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
