@@ -26,6 +26,8 @@ def upload(objidx, metadata, filename, bucket, pretend=False, partial=False, lib
     media = None
     if library:
         person = metadata.get('uploader')
+        if metadata.get('creator'):
+            person = metadata.get('creator')
         if partial:
             assert person
             media = f'live-{person}-{starttime}-{metadata.get("id")}'
