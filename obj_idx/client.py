@@ -136,7 +136,7 @@ def upload_metadata(filename: str,
     except clilib.requests.HTTPError as e:
         if e.response.status_code != 409:
             raise e
-        warnings.warn(f"Conflict for file {url} {file_checksum}... existing object {e.response.json()['object_uuid']}")
+        warnings.warn(f"Conflict for file {url} {file_checksum.hex()}... existing object {e.response.json()['object_uuid']}")
         return None
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
