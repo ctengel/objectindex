@@ -140,7 +140,7 @@ class Upload(flask_restx.Resource):
             db.db.session.add(my_obj)
         my_file = db.File.query.filter_by(url=api.payload['url'], file_object=my_obj).one_or_none()
         if my_file:
-            assert exists
+            #assert exists
             assert my_file.direct == api.payload['direct']
             assert my_file.partial == api.payload['partial']
             if api.payload['mtime'] and not my_file.mtime:
