@@ -124,6 +124,7 @@ class Upload(flask_restx.Resource):
                                       object_uuid=str(my_obj.uuid))
                 # The failed upload has been cleared/deleted so now we will allow restart
                 my_obj.deleted = False
+                exists = False
             assert not my_obj.deleted  # Object was intentionally deleted so we will not allow reupload
             if api.payload['mime'] and not my_obj.mime:
                 my_obj.mime = api.payload['mime']
