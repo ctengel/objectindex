@@ -116,11 +116,15 @@ class Upload(flask_restx.Resource):
             exists = True
             assert my_obj.obj_size == api.payload['obj_size']
             if not my_obj.completed:
-                # TODO handle retry
-                flask_restx.abort(409,
-                                  "Conflict: an upload of an object with the same checksum may currently be in progress",
-                                  object_uuid=str(my_obj.uuid))
-            assert not my_obj.deleted
+                # Upload was initiated before but not finished
+                if not my_obj.deleted:
+                    # We believe it may still be in progress so will declare a conflict
+                    flask_restx.abort(409,
+                                      "Conflict: an upload of an object with the same checksum may currently be in progress",
+                                      object_uuid=str(my_obj.uuid))
+                # The failed upload has been cleared/deleted so now we will allow restart
+                my_obj.deleted = False
+            assert not my_obj.deleted  # Object was intentionally deleted so we will not allow reupload
             if api.payload['mime'] and not my_obj.mime:
                 my_obj.mime = api.payload['mime']
             if api.payload.get('extra_object') and not my_obj.extra:
@@ -244,9 +248,16 @@ class ObjectOne(flask_restx.Resource):
     def put(self, obj_uuid):
         """Let us know an upload is completed"""
         myobj = db.Object.query.get_or_404(uuid.UUID(obj_uuid))
-        if api.payload['completed'] and not myobj.completed:
-            myobj.completed = True
-            db.db.session.commit()
+        new_completed = api.payload.get('completed')
+        new_deleted = api.payload.get('deleted')
+        if not myobj.completed and not myobj.deleted:
+            assert not (new_completed and new_deleted)
+            if new_completed or new_deleted:
+                if new_completed:
+                    myobj.completed = True
+                if new_deleted:
+                    myobj.deleted = True
+                db.db.session.commit()
         return myobj
 
 @objns.route('/<obj_uuid>/download')
