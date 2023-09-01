@@ -236,3 +236,10 @@ DEBUG = True
 OBJIDX_URL="http://127.0.0.1:5000/"  # change if running on a different host
 OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideally pass thru in fut
 ```
+
+## Issues
+
+### Failed upload
+
+Failed upload must be first cleared by PUT/PATCHing the object `/object/<object-uuid>/` with `{"deleted": true}` to signify that upload has stopped.
+
