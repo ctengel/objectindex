@@ -7,6 +7,7 @@ import os
 import json
 import pathlib
 import warnings
+import datetime
 from obj_idx import client
 
 
@@ -30,6 +31,7 @@ def upload(objidx, metadata, filename, bucket, pretend=False, partial=False, lib
             person = metadata.get('creator')
         if partial:
             assert person
+            starttime = datetime.datetime.utcfromtimestamp(metadata['timestamp']).isoformat()
             media = f'live-{person}-{starttime}-{metadata.get("id")}'
         else:
             if person:
