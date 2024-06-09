@@ -25,7 +25,7 @@ def cli():
     subparsers = parser.add_subparsers()
     parser_upload = subparsers.add_parser('upload')
     parser_upload.add_argument('-b', '--bucket')
-    parser_upload.add_argument('-t', '--tag', action='append')
+    parser_upload.add_argument('-t', '--tag', action='append', default=[])
     parser_upload.add_argument('filename', nargs='+')
     parser_upload.set_defaults(func=_upload)
     parser_download = subparsers.add_parser('download')
