@@ -11,7 +11,7 @@ import datetime
 import warnings
 from . import s3lib, clilib
 
-SW_STRING = 'OIC-0.1'
+SW_STRING = 'OIC-0.2'
 BLOCK_SIZE = 16777216
 
 def checksum(file_path: pathlib.Path) -> bytes:
@@ -53,7 +53,7 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict) 
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
         bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
-        # TODO send checksum; see https://github.com/boto/boto3/issues/3604
+        # TODO send checksum
         bucket.upload_file(filename, s3_url['key'])
         my_file.finish_upload()
     return my_file
