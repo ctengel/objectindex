@@ -58,7 +58,8 @@ def show_file(fileid):
     objidx = get_api()
     myfile = objidx.get_file(fileid)
     tags = []
-    for key, value in myfile.info['extra'].items():
+    extray = myfile.info['extra'] if myfile.info['extra'] else {}
+    for key, value in extray.items():
         if isinstance(value, str):
             tags.append({"key": key, "value": value})
     preview = None
