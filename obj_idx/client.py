@@ -9,10 +9,28 @@ import hashlib
 import mimetypes
 import datetime
 import warnings
-from . import s3lib, clilib
+import requests
+from . import clilib
 
 SW_STRING = 'OIC-0.2'
 BLOCK_SIZE = 16777216
+
+def simple_upload(filename, url, file_mime):
+    """Simpler Objects upload"""
+    with open(filename, 'rb') as f:
+        headers = {'Content-Type': file_mime}
+        response = requests.put(url, data=f, headers=headers)
+        response.raise_for_status()
+
+def simple_download(url, filename):
+    """Simpler Objects download"""
+    result = requests.get(url, stream=True)
+    result.raise_for_status()
+    with open(filename, 'wb') as f:
+        for chunk in result.iter_content(chunk_size=1048576): # Adjust chunk_size as needed
+            if chunk: # Filter out keep-alive new chunks
+                f.write(chunk)
+
 
 def checksum(file_path: pathlib.Path) -> bytes:
     """Get SHA256 checksum of a given path"""
@@ -52,9 +70,8 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict) 
                                       mime=file_mime)
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
-        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
         # TODO send checksum
-        bucket.upload_file(filename, s3_url['key'])
+        simple_upload(filename, s3_url, file_mime)
         my_file.finish_upload()
     return my_file
 
@@ -70,9 +87,8 @@ def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False) -> li
         return files
     for file in files:
         s3_url = file.get_s3_url()
-        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
         # TODO allow selecting target
-        bucket.download_file(s3_url['key'], s3_url['key'])
+        simple_download(s3_url, s3_url.rsplit('/', 1)[-1])
     # TODO verify
     return files
 
@@ -140,8 +156,7 @@ def upload_metadata(filename: str,
         return None
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
-        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
-        # TODO send checksum; see https://github.com/boto/boto3/issues/3604
-        bucket.upload_file(filename, s3_url['key'])
+        # TODO send checksum
+        simple_upload(filename, s3_url, file_mime)
         my_file.finish_upload()
     return my_file
