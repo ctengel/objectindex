@@ -23,8 +23,7 @@ Consume S3 API(s) (from MinIO or the like) and expose a rich metadata store.
 
 There are then a few different ways to use this:
 - RESTful API: `FLASK_APP=obj_idx.api OBJIDX_SETTINGS=/path/to/api.cfg flask run --host=0.0.0.0`
-  - need minio running first and setup
-    - see `obj-idx-admin setup`
+  - need simpler-objects running
   - need postgres running and setup
     - see `OBJIDX_SETTINGS=/path/to/api.cfg python3 -m obj_idx.db_create`
   - need API config file (see below)

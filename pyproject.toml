@@ -27,7 +27,6 @@ repository = "https://github.com/ctengel/objectindex"
 
 [project.scripts]
 obj-idx-client = "obj_idx.cli:cli"
-obj-idx-admin = "obj_idx.minio_admin:cli"
 
 [tool.setuptools.packages.find]
 include = ["obj_idx"]
