@@ -5,6 +5,7 @@
 import argparse
 import os
 import tempfile
+import mimetypes
 from . import client
 
 def _upload(obj_idx, args):
@@ -13,7 +14,7 @@ def _upload(obj_idx, args):
         if args.url:
             with tempfile.NamedTemporaryFile() as temp:
                 digest, mime = client.simple_download(filename, temp.name)
-                fileobj = client.upload(temp.name, obj_idx, args.bucket, tags, digest, mime)
+                fileobj = client.upload(temp.name, obj_idx, args.bucket, tags, digest, mime, filename)
             print(filename, fileobj.uuid)
             continue
         fileobj = client.upload(filename, obj_idx, args.bucket, tags)

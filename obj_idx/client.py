@@ -10,6 +10,8 @@ import mimetypes
 import datetime
 import warnings
 import base64
+from urllib.parse import urlsplit
+import os
 import requests
 from . import clilib
 
@@ -74,7 +76,7 @@ def get_mime(file_path: pathlib.Path) -> str:
     # TODO add magic from mediacrawler
     return mimetypes.guess_type(file_path)[0]
 
-def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict, checksum_val: bytes = None, file_mime: str = None) -> clilib.File:
+def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict, checksum_val: bytes = None, file_mime: str = None, orig_url: str = None) -> clilib.File:
     """Run an actual file upload into ObjIdx and S3"""
     # TODO consider refactoring information gathering with mediacrawler fs.File.get_media()
     file_path = pathlib.Path(filename)
@@ -84,16 +86,20 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict, 
         assert checksum_val == file_checksum
     if not file_mime:
         file_mime = get_mime(file_path)
-
-    # TODO consider using file_path.resolve() instead?
-    file_base_uri = str(file_path.absolute().as_uri())
-    file_uri = f"{file_base_uri[:7]}{socket.gethostname()}{file_base_uri[7:]}"
+    if orig_url:
+        file_uri = orig_url
+        simple_filename = os.path.basename(urlsplit(orig_url).path)
+    else:
+        # TODO consider using file_path.resolve() instead?
+        file_base_uri = str(file_path.absolute().as_uri())
+        file_uri = f"{file_base_uri[:7]}{socket.gethostname()}{file_base_uri[7:]}"
+        simple_filename = file_path.name
     my_file = obj_idx.initiate_upload(url=file_uri,
                                       bucket=bucket,
                                       obj_size=file_stat.st_size,
                                       # TODO timezone
                                       mtime=datetime.datetime.fromtimestamp(file_stat.st_mtime),
-                                      filename=file_path.name,
+                                      filename=simple_filename,
                                       extra_file=tags,
                                       checksum=file_checksum,
                                       mime=file_mime)
