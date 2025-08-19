@@ -211,6 +211,21 @@ pg_dump --schema-only DB > schema.sql
 
 The `db_create.py` script will empty a database and create tables in the schema, and uses the same config file as the web app.
 
+#### Moving/deleting buckets
+
+Moving
+
+```
+update object set bucket='new' where bucket='old';
+```
+
+Deleting
+
+```
+delete from file using object where file.obj_uuid=object.uuid and object.bucket='old';
+objidx1d=> delete from object where bucket='old';
+```
+
 ## Config files
 
 
@@ -241,4 +256,13 @@ OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideal
 ### Failed upload
 
 Failed upload must be first cleared by PUT/PATCHing the object `/object/<object-uuid>/` with `{"deleted": true}` to signify that upload has stopped.
+
+Essentially, the lifecycle state machine of an object looks something like this:
+1. Initial POST upload - new status (completed: false; deleted: false) - assumed upload to object store to initiate shortly - subsequent upload attempts will fail
+2. Successful object upload
+3. PUT object completed=True signifying completion - normal status (completed: true, deleted: false)
+
+The initial client may retry step 2 as many times as needed; however to start from scratch the object needs to be put in "retry" mode (completed: false, deleted: true) as described above.
+
+Finally, once an object is in normal state, the object may be noted as permenantly deleted intentionally (i.e. so no option/desire for retry) by putting it in deleted state (completed: true, deleted: true) - putting it in this state doesn't actually delete it from object store though.
 
