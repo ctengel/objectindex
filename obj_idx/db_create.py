@@ -1,7 +1,8 @@
 """Run this module to create DB tables"""
 
-from . import db
+from . import db, app
 
-db = db.db
-db.drop_all()
-db.create_all()
+with app.app.app_context():
+    db = db.db
+    db.drop_all()
+    db.create_all()

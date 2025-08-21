@@ -9,10 +9,56 @@ import hashlib
 import mimetypes
 import datetime
 import warnings
-from . import s3lib, clilib
+import base64
+from urllib.parse import urlsplit
+import os
+import requests
+from . import clilib
 
-SW_STRING = 'OIC-0.1'
+SW_STRING = 'OIC-0.2'
 BLOCK_SIZE = 16777216
+
+def parse_digest_header(header_value: str) -> bytes:
+    """Read SHA256 binary value from HTTP Content-Digest value"""
+    if not header_value:
+        return None
+    for pair in header_value.split(','):
+        algo, equals, digest = pair.partition('=')
+        assert equals == '='
+        if not algo == 'sha256':
+            continue
+        return base64.b64decode(digest.strip(':'))
+    return None
+
+def encode_digest_header(checksum_val: bytes) -> str:
+    """Encode SHA256 digest into an HTTP Content-Digest value"""
+    return f"sha256=:{base64.b64encode(checksum_val)}:"
+
+def simple_upload(filename, url, file_mime, checksum_val=None):  #, fh=False):
+    """Simpler Objects upload"""
+    headers = {'Content-Type': file_mime}
+    if checksum_val:
+        headers['Content-Digest'] = encode_digest_header(checksum_val)
+    #if fh:
+    #    response = requests.put(url, data=filename, headers=headers)
+    #    response.raise_for_status()
+    #    return
+    with open(filename, 'rb') as f:
+        response = requests.put(url, data=f, headers=headers)
+        response.raise_for_status()
+
+def simple_download(url, filename):
+    """Simpler Objects download"""
+    result = requests.get(url, stream=True, headers={'Want-Content-Digest': 'sha-256=9'})
+    result.raise_for_status()
+    digest = parse_digest_header(result.headers.get('Content-Digest'))
+    mime = result.headers.get('Content-Type')
+    with open(filename, 'wb') as f:
+        for chunk in result.iter_content(chunk_size=BLOCK_SIZE):
+            if chunk: # Filter out keep-alive new chunks
+                f.write(chunk)
+    return digest, mime
+
 
 def checksum(file_path: pathlib.Path) -> bytes:
     """Get SHA256 checksum of a given path"""
@@ -30,31 +76,36 @@ def get_mime(file_path: pathlib.Path) -> str:
     # TODO add magic from mediacrawler
     return mimetypes.guess_type(file_path)[0]
 
-def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict) -> clilib.File:
+def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict, checksum_val: bytes = None, file_mime: str = None, orig_url: str = None) -> clilib.File:
     """Run an actual file upload into ObjIdx and S3"""
     # TODO consider refactoring information gathering with mediacrawler fs.File.get_media()
     file_path = pathlib.Path(filename)
     file_stat = file_path.stat()
     file_checksum = checksum(file_path)
-    file_mime = get_mime(file_path)
-
-    # TODO consider using file_path.resolve() instead?
-    file_base_uri = str(file_path.absolute().as_uri())
-    file_uri = f"{file_base_uri[:7]}{socket.gethostname()}{file_base_uri[7:]}"
+    if checksum_val:
+        assert checksum_val == file_checksum
+    if not file_mime:
+        file_mime = get_mime(file_path)
+    if orig_url:
+        file_uri = orig_url
+        simple_filename = os.path.basename(urlsplit(orig_url).path)
+    else:
+        # TODO consider using file_path.resolve() instead?
+        file_base_uri = str(file_path.absolute().as_uri())
+        file_uri = f"{file_base_uri[:7]}{socket.gethostname()}{file_base_uri[7:]}"
+        simple_filename = file_path.name
     my_file = obj_idx.initiate_upload(url=file_uri,
                                       bucket=bucket,
                                       obj_size=file_stat.st_size,
                                       # TODO timezone
                                       mtime=datetime.datetime.fromtimestamp(file_stat.st_mtime),
-                                      filename=file_path.name,
+                                      filename=simple_filename,
                                       extra_file=tags,
                                       checksum=file_checksum,
                                       mime=file_mime)
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
-        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
-        # TODO send checksum; see https://github.com/boto/boto3/issues/3604
-        bucket.upload_file(filename, s3_url['key'])
+        simple_upload(filename, s3_url, file_mime, file_checksum)
         my_file.finish_upload()
     return my_file
 
@@ -70,10 +121,12 @@ def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False) -> li
         return files
     for file in files:
         s3_url = file.get_s3_url()
-        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
         # TODO allow selecting target
-        bucket.download_file(s3_url['key'], s3_url['key'])
-    # TODO verify
+        tgt_filename = s3_url.rsplit('/', 1)[-1]
+        dl_cksum, _ = simple_download(s3_url, tgt_filename)
+        if dl_cksum:
+            assert file.object['checksum'] == dl_cksum
+        assert file.object['checksum'] == checksum(tgt_filename)
     return files
 
 def upload_metadata(filename: str,
@@ -140,8 +193,6 @@ def upload_metadata(filename: str,
         return None
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
-        bucket = s3lib.get_s3_service_url(s3_url['server']).Bucket(s3_url['bucket'])
-        # TODO send checksum; see https://github.com/boto/boto3/issues/3604
-        bucket.upload_file(filename, s3_url['key'])
+        simple_upload(filename, s3_url, file_mime, file_checksum)
         my_file.finish_upload()
     return my_file

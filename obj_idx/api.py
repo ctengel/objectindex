@@ -4,7 +4,6 @@ import uuid
 import flask_restx
 from . import app
 from . import db
-from . import s3lib
 
 ACCEPT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 REPLACE_CHAR = "_"
@@ -36,12 +35,9 @@ objns = api.namespace('object', description='Object operations')
 abf = api.model('BriefFile', {'uuid': flask_restx.fields.String(readonly=True),
                               'url': flask_restx.fields.String(readonly=True)})
                               #'link': flask_restx.fields.String(readonly=True)})
-s3l = api.model('S3Link', {'server': flask_restx.fields.String(),
-                           'bucket': flask_restx.fields.String(),
-                           'key': flask_restx.fields.String(),
-                           'presigned': flask_restx.fields.String()})
+s3l = api.model('S3Link', {'presigned': flask_restx.fields.String()})
 ull = api.model('UploadLinks', {'finished': flask_restx.fields.String(readonly=True),
-                               's3': flask_restx.fields.Nested(s3l, readonly=True)})
+                                's3': flask_restx.fields.String(readonly=True)})
 upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
                               'url': flask_restx.fields.String(required=True),
                               'direct': flask_restx.fields.Boolean(default=True),
@@ -82,22 +78,13 @@ fil = api.model('File',  {'mtime': flask_restx.fields.DateTime(),
 ulr = api.model('UploadResult', {'file': flask_restx.fields.Nested(fil),
                                  'exists': flask_restx.fields.Boolean(),
                                  'upload': flask_restx.fields.Nested(ull),
-                                 'download': flask_restx.fields.Nested(s3l, readonly=True)})
+                                 'download': flask_restx.fields.String(readonly=True)})
 
 
 def get_dl_url(objobj):
     """Get a URLish list of server, bucket, key"""
-    return {'server': app.config['OBJIDX_S3'],
-            'bucket': objobj.bucket,
-            'key': objobj.key}
+    return f"{app.config['OBJIDX_S3']}{objobj.bucket}/{objobj.key}"
 
-
-def get_s3_obj():
-    """Get an S3 object"""
-    # TODO cache this?
-    return s3lib.get_s3_client_low(app.config['OBJIDX_S3'])
-
-# flask_restx.fields.Integer(readonly=True, description='Task ID'),
 
 @uplns.route('/')
 class Upload(flask_restx.Resource):
@@ -166,8 +153,7 @@ class Upload(flask_restx.Resource):
         if exists:
             retobj['download'] = get_dl_url(my_obj)
         else:
-            # NOTE the s3 URL is not really a URL but a dictionary with access info
-            # NOTE the finished URL may be relative
+            # NOTE the s3 URL is NOW really a URL
             retobj['upload'] = {'s3': get_dl_url(my_obj),
                                 'finished': api.url_for(ObjectOne, obj_uuid=my_obj.uuid)}
         return retobj, 201
@@ -267,16 +253,9 @@ class ObjectOne(flask_restx.Resource):
 class ObjectDownload(flask_restx.Resource):
     """Provides ways of downloading the object contents"""
 
-    @objns.doc('download_object',
-               params={'presigned': {'description': 'Presigned HTTP URL instead of plain S3',
-                                     'type': 'boolean'}})
+    @objns.doc('download_object')
     @objns.marshal_with(s3l)
     def get(self, obj_uuid):
         """Get S3 download info for object"""
-        parser = flask_restx.reqparse.RequestParser()
-        parser.add_argument('presigned')
-        args = parser.parse_args()
         db_obj = db.Object.query.get_or_404(uuid.UUID(obj_uuid))
-        if args.presigned:
-            return {'presigned': s3lib.presigned(get_s3_obj(), db_obj.bucket, db_obj.key)}
-        return get_dl_url(db_obj)
+        return {'presigned': get_dl_url(db_obj)}

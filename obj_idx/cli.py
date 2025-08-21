@@ -4,11 +4,20 @@
 
 import argparse
 import os
+import tempfile
+import pathlib
 from . import client
 
 def _upload(obj_idx, args):
     tags = {x.partition('=')[0]: x.partition('=')[2] for x in args.tag}
     for filename in args.filename:
+        if args.url:
+            with tempfile.NamedTemporaryFile() as temp:
+                digest, mime = client.simple_download(filename, temp.name)
+                fileobj = client.upload(temp.name, obj_idx, args.bucket, tags, digest, mime,
+                                        filename)
+            print(filename, fileobj.uuid)
+            continue
         fileobj = client.upload(filename, obj_idx, args.bucket, tags)
         # TODO state whether it is a new upload?
         print(filename, fileobj.uuid)
@@ -19,6 +28,28 @@ def _download(obj_idx, args):
         for file in files:
             print(url, file.info['url'], file.uuid, file.get_s3_url())
 
+def _check(obj_idx, args):
+    for filename in args.filename:
+        mypath = pathlib.Path(filename)
+        assert mypath.exists()
+        checksum = client.checksum(mypath)
+        my_objects = obj_idx.search_object(checksum.hex())
+        assert len(my_objects) <= 1
+        if not my_objects:
+            print(mypath, checksum.hex(), 'not found')
+            continue
+        my_object = my_objects[0]
+        assert my_object['checksum'] == checksum.hex()
+        assert my_object['completed']
+        assert not my_object['deleted']
+        assert my_object['obj_size'] == mypath.stat().st_size
+        print(my_object['uuid'], my_object['mime'], my_object['bucket'], my_object['key'],
+              mypath, my_object['files'])
+        if args.rm:
+            mypath.unlink()
+
+
+
 def cli():
     """CLI main function"""
     parser = argparse.ArgumentParser(description="Object Index client")
@@ -26,12 +57,17 @@ def cli():
     parser_upload = subparsers.add_parser('upload')
     parser_upload.add_argument('-b', '--bucket')
     parser_upload.add_argument('-t', '--tag', action='append', default=[])
+    parser_upload.add_argument('-u', '--url', action='store_true')
     parser_upload.add_argument('filename', nargs='+')
     parser_upload.set_defaults(func=_upload)
     parser_download = subparsers.add_parser('download')
     parser_download.add_argument('-p', '--pretend', action='store_true')
     parser_download.add_argument('url', nargs='+')
     parser_download.set_defaults(func=_download)
+    parser_check = subparsers.add_parser('check')
+    parser_check.add_argument('-r', '--rm', action='store_true')
+    parser_check.add_argument('filename', nargs='+')
+    parser_check.set_defaults(func=_check)
     oi_url = os.environ['OBJIDX_URL']
     oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
     args = parser.parse_args()
