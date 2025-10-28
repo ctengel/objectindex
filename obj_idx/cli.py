@@ -4,7 +4,6 @@
 
 import argparse
 import os
-import tempfile
 import pathlib
 from . import client
 
@@ -12,13 +11,11 @@ def _upload(obj_idx, args):
     tags = {x.partition('=')[0]: x.partition('=')[2] for x in args.tag}
     for filename in args.filename:
         if args.url:
-            with tempfile.NamedTemporaryFile() as temp:
-                digest, mime = client.simple_download(filename, temp.name)
-                fileobj = client.upload(temp.name, obj_idx, args.bucket, tags, digest, mime,
-                                        filename)
-            print(filename, fileobj.uuid)
-            continue
-        fileobj = client.upload(filename, obj_idx, args.bucket, tags)
+            fileobj = client.upload_remote(filename, obj_idx, args.bucket,
+                                           extra=tags)
+        else:
+            fileobj = client.upload_local(filename, obj_idx, args.bucket,
+                                          extra=tags)
         # TODO state whether it is a new upload?
         print(filename, fileobj.uuid)
 

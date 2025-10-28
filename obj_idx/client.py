@@ -12,6 +12,7 @@ import warnings
 import base64
 from urllib.parse import urlsplit
 import os
+import tempfile
 import requests
 from . import clilib
 
@@ -76,9 +77,21 @@ def get_mime(file_path: pathlib.Path) -> str:
     # TODO add magic from mediacrawler
     return mimetypes.guess_type(file_path)[0]
 
-def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict, checksum_val: bytes = None, file_mime: str = None, orig_url: str = None) -> clilib.File:
-    """Run an actual file upload into ObjIdx and S3"""
-    # TODO consider refactoring information gathering with mediacrawler fs.File.get_media()
+def upload_core(filename: str,
+                obj_idx: clilib.ObjectIndex,
+                bucket: str,
+                url: str,
+                mtime: datetime.datetime,
+                direct: bool = True,
+                partial: bool = False,
+                extra: dict = None,
+                checksum_val: bytes = None,
+                file_mime: str = None,
+                key_hint: str = None) -> clilib.File:
+    """Cpre upload function
+
+    typically you want upload_local() or upload_remote()
+    """
     file_path = pathlib.Path(filename)
     file_stat = file_path.stat()
     file_checksum = checksum(file_path)
@@ -86,28 +99,102 @@ def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict, 
         assert checksum_val == file_checksum
     if not file_mime:
         file_mime = get_mime(file_path)
-    if orig_url:
-        file_uri = orig_url
-        simple_filename = os.path.basename(urlsplit(orig_url).path)
-    else:
-        # TODO consider using file_path.resolve() instead?
-        file_base_uri = str(file_path.absolute().as_uri())
-        file_uri = f"{file_base_uri[:7]}{socket.gethostname()}{file_base_uri[7:]}"
-        simple_filename = file_path.name
-    my_file = obj_idx.initiate_upload(url=file_uri,
-                                      bucket=bucket,
-                                      obj_size=file_stat.st_size,
-                                      # TODO timezone
-                                      mtime=datetime.datetime.fromtimestamp(file_stat.st_mtime),
-                                      filename=simple_filename,
-                                      extra_file=tags,
-                                      checksum=file_checksum,
-                                      mime=file_mime)
+    if not key_hint:
+        key_hint = os.path.basename(urlsplit(url).path)
+
+    try:
+        my_file = obj_idx.initiate_upload(url=url,
+                                          bucket=bucket,
+                                          obj_size=file_stat.st_size,
+                                          # TODO timezone
+                                          mtime=mtime,
+                                          filename=key_hint,
+                                          extra_file=extra,
+                                          checksum=file_checksum,
+                                          mime=file_mime,
+                                          direct=direct,
+                                          partial=partial)
+    except clilib.requests.HTTPError as e:
+        if e.response.status_code != 409:
+            raise e
+        warnings.warn(f"Conflict for file {url} {file_checksum.hex()}... existing object {e.response.json()['object_uuid']}")
+        return None
+
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
         simple_upload(filename, s3_url, file_mime, file_checksum)
         my_file.finish_upload()
     return my_file
+
+
+def upload_local(filename: str,
+                 obj_idx: clilib.ObjectIndex,
+                 bucket: str,
+                 url: str = None,
+                 mtime: datetime.datetime = None,
+                 direct: bool = True,
+                 partial: bool = False,
+                 extra: dict = None,
+                 checksum_val: bytes = None,
+                 file_mime: str = None,
+                 key_hint: str = None) -> clilib.File:
+    """Upload a local file"""
+    # TODO consider refactoring information gathering with mediacrawler fs.File.get_media()
+    file_path = pathlib.Path(filename)
+    file_stat = file_path.stat()
+    if not url:
+        assert direct
+        assert not partial
+        # TODO consider using file_path.resolve() instead?
+        file_base_uri = str(file_path.absolute().as_uri())
+        url = f"{file_base_uri[:7]}{socket.gethostname()}{file_base_uri[7:]}"
+        if not key_hint:
+            key_hint = file_path.name
+    if not mtime:
+        # TODO timezone
+        mtime = datetime.datetime.fromtimestamp(file_stat.st_mtime)
+    if not extra:
+        extra = {}
+    return upload_core(filename, obj_idx, bucket, url,
+                       mtime=mtime,
+                       direct=direct,
+                       partial=partial,
+                       extra=extra,
+                       checksum_val=checksum_val,
+                       file_mime=file_mime,
+                       key_hint=key_hint)
+
+def upload_remote(url: str,
+                  obj_idx: clilib.ObjectIndex,
+                  bucket: str,
+                  mtime: datetime.datetime = None,
+                  partial: bool = False,
+                  extra: dict = None,
+                  key_hint: str = None) -> clilib.File:
+    """Upload a remote file"""
+    # TODO ck if exists
+    with tempfile.NamedTemporaryFile() as temp:
+        # TODO attempt to grab mtime and key_hint
+        digest, mime = simple_download(url, temp.name)
+        fileobj = upload_core(temp.name, obj_idx, bucket, url,
+                              mtime=mtime,
+                              direct=True,
+                              partial=partial,
+                              extra=extra,
+                              checksum_val=digest,
+                              file_mime=mime,
+                              key_hint=key_hint)
+    return fileobj
+
+
+def upload(filename: str, obj_idx: clilib.ObjectIndex, bucket: str, tags: dict, checksum_val: bytes = None, file_mime: str = None, orig_url: str = None) -> clilib.File:
+    """Run an actual file upload into ObjIdx and S3"""
+    return upload_local(filename, obj_idx, bucket,
+                        url=orig_url,
+                        extra=tags,
+                        checksum_val=checksum_val,
+                        file_mime=file_mime)
+
 
 def get_obj_idx(url, user):
     """Get ObjectIndex object"""
@@ -142,12 +229,6 @@ def upload_metadata(filename: str,
                     ytdl_info: dict = None,
                     extra: dict = None) -> clilib.File:
     """Upload file with metadata"""
-    # TODO refactor with upload() and future upload stream/new
-    file_path = pathlib.Path(filename)
-    file_stat = file_path.stat()
-    file_checksum = checksum(file_path)
-    file_mime = get_mime(file_path)
-
     if not extra:
         extra = {}
     if library:
@@ -170,29 +251,9 @@ def upload_metadata(filename: str,
             mtime = datetime.datetime.fromtimestamp(ytdl_info['timestamp'])
     else:
         extra['ytdl-info'] = None
-
-    if not mtime:
-        mtime = datetime.datetime.fromtimestamp(file_stat.st_mtime)
-
-    try:
-        my_file = obj_idx.initiate_upload(url=url,
-                                          bucket=bucket,
-                                          obj_size=file_stat.st_size,
-                                          # TODO timezone
-                                          mtime=mtime,
-                                          filename=file_path.name,
-                                          extra_file=extra,
-                                          checksum=file_checksum,
-                                          mime=file_mime,
-                                          direct=direct,
-                                          partial=partial)
-    except clilib.requests.HTTPError as e:
-        if e.response.status_code != 409:
-            raise e
-        warnings.warn(f"Conflict for file {url} {file_checksum.hex()}... existing object {e.response.json()['object_uuid']}")
-        return None
-    if not my_file.exists():
-        s3_url = my_file.get_s3_url()
-        simple_upload(filename, s3_url, file_mime, file_checksum)
-        my_file.finish_upload()
-    return my_file
+    return upload_local(filename, obj_idx, bucket,
+                        url=url,
+                        mtime=mtime,
+                        direct=direct,
+                        partial=partial,
+                        extra=extra)
