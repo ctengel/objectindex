@@ -27,24 +27,16 @@ def _download(obj_idx, args):
 
 def _check(obj_idx, args):
     for filename in args.filename:
-        mypath = pathlib.Path(filename)
-        assert mypath.exists()
-        checksum = client.checksum(mypath)
-        my_objects = obj_idx.search_object(checksum.hex())
-        assert len(my_objects) <= 1
-        if not my_objects:
-            print(mypath, checksum.hex(), 'not found')
+        files = client.find_files(filename, obj_idx)
+        if not files:
+            print(filename, 'not found')
             continue
-        my_object = my_objects[0]
-        assert my_object['checksum'] == checksum.hex()
-        assert my_object['completed']
-        assert not my_object['deleted']
-        assert my_object['obj_size'] == mypath.stat().st_size
+        my_object = files[0].object
         print(my_object['uuid'], my_object['mime'], my_object['bucket'], my_object['key'],
-              mypath, my_object['files'])
+              filename,
+              [(f.uuid, f.info['url']) for f in files])
         if args.rm:
-            mypath.unlink()
-
+            pathlib.Path(filename).unlink()
 
 
 def cli():

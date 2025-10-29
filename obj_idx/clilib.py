@@ -5,6 +5,8 @@ import uuid
 from urllib.parse import urljoin
 import requests
 
+TIMEOUT=15
+
 
 class File:
     """An ObjectIndex 'file'"""
@@ -67,21 +69,27 @@ class ObjectIndex:
 
     def put(self, url, json):
         """Run an API PUT/PATCH"""
-        result = requests.put(urljoin(self.url, url), json=json)
+        result = requests.put(urljoin(self.url, url), json=json, timeout=TIMEOUT)
         result.raise_for_status()
         return result.json()
 
     def post(self, url, json):
         """Run an API POST"""
-        result = requests.post(urljoin(self.url, url), json=json)
+        result = requests.post(urljoin(self.url, url), json=json, timeout=TIMEOUT)
         result.raise_for_status()
         return result.json()
 
     def get(self, url, params=None):
         """Run an API GET"""
-        result = requests.get(urljoin(self.url, url), params=params)
+        result = requests.get(urljoin(self.url, url), params=params, timeout=TIMEOUT)
         result.raise_for_status()
         return result.json()
+
+    def file_obj_from_dict(self, file: dict) -> File:
+        """Create a file object from a dictionary"""
+        file_obj = File(self, file['uuid'])
+        file_obj.set_info(file)
+        return file_obj
 
     def initiate_upload(self, url: str, bucket: str, obj_size: int, checksum: bytes,
                         direct: bool = True,
@@ -130,12 +138,7 @@ class ObjectIndex:
 
     def search_files(self, params):
         """Search for files with given parameters"""
-        files = []
-        for file in self.get('file/', params):
-            file_obj = File(self, file['uuid'])
-            file_obj.set_info(file)
-            files.append(file_obj)
-        return files
+        return [self.file_obj_from_dict(file) for file in self.get('file/', params)]
 
     def get_file(self, fileid, with_info=True):
         """Get file object for given UUID"""
