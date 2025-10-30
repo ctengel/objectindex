@@ -234,14 +234,22 @@ def upload_remote(url: str,
                   partial: bool = False,
                   extra: dict = None,
                   key_hint: str = None,
-                  check_exists: bool = True) -> clilib.File:
+                  check_exists: bool = True,
+                  catch_dl_err: bool = False) -> clilib.File:
     """Upload a remote file"""
     if check_exists:
         finds = find_files(url, obj_idx, is_url=True)
         if finds:
+            warnings.warn(f"Already got {url} as {finds[0].uuid}")
             return finds[0]
     with tempfile.NamedTemporaryFile() as temp:
-        digest, mime, new_keyhint, new_mtime = simple_download(url, temp.name)
+        try:
+            digest, mime, new_keyhint, new_mtime = simple_download(url, temp.name)
+        except requests.exceptions.HTTPError as excp:
+            if catch_dl_err:
+                warnings.warn(str(excp))
+                return None
+            raise excp
         if not key_hint:
             key_hint = new_keyhint
         if not mtime:
