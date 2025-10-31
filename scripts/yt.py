@@ -8,54 +8,8 @@ import json
 import pathlib
 import warnings
 import datetime
-from obj_idx import client
+from obj_idx import client, dlp_lpm_meta
 
-
-def read_info_json(filename):
-    """Return data from a JSON file"""
-    with open(filename, encoding="utf-8") as user_file:
-        parsed_json = json.load(user_file)
-    return parsed_json
-
-def upload(objidx, metadata, filename, bucket, pretend=False, partial=False, library=None):
-    """Upload a given file based on JSON metadata"""
-    url = metadata.get('webpage_url')
-    if not (url and url.startswith('http')):
-        url = metadata.get('url')
-    assert url.startswith('http')
-    person = None
-    media = None
-    if library:
-        person = metadata.get('uploader')
-        if metadata.get('creator'):
-            person = metadata.get('creator')
-        if partial:
-            assert person
-            starttime = datetime.datetime.utcfromtimestamp(metadata['timestamp']).isoformat()
-            media = f'live-{person}-{starttime}-{metadata.get("id")}'
-        else:
-            if person:
-                media = f'vid-{person}-{metadata.get("id")}'
-            else:
-                media = metadata.get("id")
-    print(filename, url, person, media)
-    if pretend:
-        return None
-    flob = client.upload_metadata(filename,
-                                  objidx,
-                                  bucket=bucket,
-                                  url=url,
-                                  direct=False,
-                                  partial=partial,
-                                  ytdl_info=metadata,
-                                  library=library,
-                                  person=person,
-                                  media=media)
-    if not flob:
-        warnings.warn(f"Possible conflict for {filename}; upload failed")
-        return None
-    print(flob.uuid)
-    return flob
 
 def do_info_json(objidx, info_json, bucket, pretend=False, partial=False, library=None):
     """Given a .info.json file, parse it and upload with relevant metadata
@@ -64,19 +18,14 @@ def do_info_json(objidx, info_json, bucket, pretend=False, partial=False, librar
 
     Specify library if uploader is a person
     """
-    parsed_json = read_info_json(info_json)
-    if parsed_json.get('_type') == 'playlist':
-        warnings.warn(f"Skipping playlist {info_json}")
+    parsed_json = dlp_lpm_meta.DLPMetaData(from_file=info_json, partial=partial)
+    print(parsed_json.add_lpm(library))
+    if pretend:
         return
-    extension = parsed_json.get('ext')
-    assert extension
-    base_file_name = info_json.removesuffix('.info.json')
-    assert base_file_name != info_json
-    media_file = base_file_name + "." + extension
-    if not pathlib.Path(media_file).exists():
-        warnings.warn(f"Skipping nonexistant file {media_file}")
-        return
-    upload(objidx, parsed_json, media_file, bucket, pretend, partial, library)
+    try:
+        print(parsed_json.upload(objidx, bucket).uuid)
+    except dlp_lpm_meta.NoMediaFile as nmfe:
+        warnings.warn(str(nmfe))
 
 
 def _cli():
