@@ -287,6 +287,15 @@ def get_obj_idx(url, user):
     # TODO add in user and auth
     return clilib.ObjectIndex(url, host=socket.gethostname(), sw=SW_STRING, user=user)
 
+
+def get_obj_idx_env():
+    """Get objidx from environment"""
+    oi_url = os.environ['OBJIDX_URL']
+    oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
+    objidx = get_obj_idx(oi_url, oi_user)
+    return objidx
+
+
 def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False) -> list[clilib.File]:
     """Download a file with given original URL"""
     files = obj_idx.search_files({'url': url})

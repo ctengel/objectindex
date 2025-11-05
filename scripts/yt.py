@@ -3,11 +3,7 @@
 """Script for dlp upload"""
 
 import argparse
-import os
-import json
-import pathlib
 import warnings
-import datetime
 from obj_idx import client, dlp_lpm_meta
 
 
@@ -35,10 +31,8 @@ def _cli():
     parser.add_argument('-P', '--partial', action='store_true')
     parser.add_argument('-l', '--library')
     parser.add_argument('filename', nargs='+')
-    oi_url = os.environ['OBJIDX_URL']
-    oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
     args = parser.parse_args()
-    objidx = client.get_obj_idx(oi_url, oi_user)
+    objidx = client.get_obj_idx_env()
     for filename in args.filename:
         do_info_json(objidx, filename, args.bucket, args.pretend, args.partial, args.library)
 

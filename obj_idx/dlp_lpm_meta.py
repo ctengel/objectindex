@@ -9,7 +9,8 @@ import json
 from . import client
 
 class NoMediaFile(Exception):
-    pass
+    """Can't find associated media file"""
+
 
 def read_info_json(filename):
     """Return data from a JSON file"""
@@ -18,6 +19,7 @@ def read_info_json(filename):
     return parsed_json
 
 def lpm2dict(library, person, media):
+    """Take lpm and put it into flat JSON"""
     if not library:
         return {}
     library = library.upper()
@@ -31,12 +33,17 @@ def lpm2dict(library, person, media):
 
 
 class DLPMetaData:
+    """Metadata from ytdl etc"""
+
     data: dict = None
     ijfn: pathlib.Path = None
     partial: bool = False
     lpm: tuple = (None, None, None)
 
-    def __init__(self, from_dict: dict = None, from_file: pathlib.Path = None, partial: bool = False):
+    def __init__(self,
+                 from_dict: dict = None,
+                 from_file: pathlib.Path = None,
+                 partial: bool = False):
         assert from_dict or from_file
         assert not (from_dict and from_file)
         if from_file:
@@ -45,15 +52,17 @@ class DLPMetaData:
         else:
             self.data = from_dict.copy()
         self.partial = partial
-        
+
     def get_url(self):
+        """Get webpage pseudo URL"""
         url = self.data.get('webpage_url')
         if not (url and url.startswith('http')):
             url = self.data.get('url')
         assert url.startswith('http')
-        return url        
+        return url
 
     def get_media_file(self) -> pathlib.Path:
+        """Get path of associated media file"""
         if self.data.get('_type') == 'playlist':
             raise NoMediaFile(f"No media for playlist {self.ijfn}")
         extension = self.data.get('ext')
@@ -63,14 +72,15 @@ class DLPMetaData:
         assert base_file_name != self.ijfn
         media_file = base_file_name + "." + extension  # TODO use pathlib
         return pathlib.Path(media_file)
-    
+
     def _get_media_file_verify(self):
         mf = self.get_media_file()
         if not mf.exists():
             raise NoMediaFile(f"Cannot find {mf}")
         return mf
-    
+
     def add_lpm(self, library: str):
+        """Add LPM data based on metadata and given library"""
         media = None
         person = self.data.get('uploader')
         if self.data.get('creator'):
@@ -87,8 +97,9 @@ class DLPMetaData:
                 media = self.data.get("id")
         self.lpm = library, person, media
         return self.lpm
-    
+
     def export_extra(self):
+        """Get dictionary of all known extra metadata"""
         extra = {'ytdl-info': self.data,
                  'ytdl-extractor': self.data['extractor_key'].lower(),
                 'ytdl-id': f"{self.data['extractor_key'].lower()} {self.data['id']}"}
@@ -96,11 +107,12 @@ class DLPMetaData:
         return extra
 
     def get_mtime(self):
+        """Determine mtime from info json"""
         # TODO TZ
         return datetime.datetime.fromtimestamp(self.data['timestamp'])
 
-    
     def upload(self, obj_idx, bucket):
+        """Do the upload to a given object index bucket"""
         # TODO filename to delete when done
         mf = self._get_media_file_verify()
         url = self.get_url()

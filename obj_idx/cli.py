@@ -3,7 +3,6 @@
 """CLI for object index client"""
 
 import argparse
-import os
 import pathlib
 from . import client
 
@@ -57,10 +56,8 @@ def cli():
     parser_check.add_argument('-r', '--rm', action='store_true')
     parser_check.add_argument('filename', nargs='+')
     parser_check.set_defaults(func=_check)
-    oi_url = os.environ['OBJIDX_URL']
-    oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
     args = parser.parse_args()
-    args.func(client.get_obj_idx(oi_url, oi_user), args)
+    args.func(client.get_obj_idx_env(), args)
 
 
 if __name__ == '__main__':
