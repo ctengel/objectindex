@@ -14,6 +14,7 @@ def do_info_json(objidx, info_json, bucket, pretend=False, partial=False, librar
 
     Specify library if uploader is a person
     """
+    # TODO send as Path
     parsed_json = dlp_lpm_meta.DLPMetaData(from_file=info_json, partial=partial)
     print(parsed_json.add_lpm(library))
     if pretend:

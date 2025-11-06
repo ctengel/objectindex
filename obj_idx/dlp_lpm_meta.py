@@ -68,8 +68,9 @@ class DLPMetaData:
         extension = self.data.get('ext')
         assert extension
         assert self.ijfn  # TODO drop this requirement
-        base_file_name = self.ijfn.removesuffix('.info.json')
-        assert base_file_name != self.ijfn
+        # TODO use pathlib, not str.removesuffix
+        base_file_name = str(self.ijfn).removesuffix('.info.json')
+        assert base_file_name != str(self.ijfn)
         media_file = base_file_name + "." + extension  # TODO use pathlib
         return pathlib.Path(media_file)
 

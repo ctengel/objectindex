@@ -275,6 +275,7 @@ def upload(filename: str,
            file_mime: str = None,
            orig_url: str = None) -> clilib.File:
     """Run an actual file upload into ObjIdx and S3"""
+    warnings.warn("Deprecated use of upload; consider using upload_local.")
     return upload_local(filename, obj_idx, bucket,
                         url=orig_url,
                         extra=tags,
@@ -324,6 +325,7 @@ def upload_metadata(filename: str,
                     ytdl_info: dict = None,
                     extra: dict = None) -> clilib.File:
     """Upload file with metadata"""
+    warnings.warn("Deprecated use of upload_metadata; consider using upload_local or dlp_meta.")
     if not extra:
         extra = {}
     if library:
