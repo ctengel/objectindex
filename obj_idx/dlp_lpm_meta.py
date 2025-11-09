@@ -65,6 +65,11 @@ class DLPMetaData:
         """Get path of associated media file"""
         if self.data.get('_type') == 'playlist':
             raise NoMediaFile(f"No media for playlist {self.ijfn}")
+        media_file = self.data.get('filename')
+        if media_file:
+            if self.ijfn:
+                assert media_file != str(self.ijfn)
+            return pathlib.Path(media_file)
         extension = self.data.get('ext')
         assert extension
         assert self.ijfn  # TODO drop this requirement
@@ -103,7 +108,7 @@ class DLPMetaData:
         """Get dictionary of all known extra metadata"""
         extra = {'ytdl-info': self.data,
                  'ytdl-extractor': self.data['extractor_key'].lower(),
-                'ytdl-id': f"{self.data['extractor_key'].lower()} {self.data['id']}"}
+                 'ytdl-id': f"{self.data['extractor_key'].lower()} {self.data['id']}"}
         extra.update(lpm2dict(*self.lpm))
         return extra
 
