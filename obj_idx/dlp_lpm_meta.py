@@ -115,6 +115,8 @@ class DLPMetaData:
     def get_mtime(self):
         """Determine mtime from info json"""
         # TODO TZ
+        if not self.data.get('timestamp'):
+            return None
         return datetime.datetime.fromtimestamp(self.data['timestamp'])
 
     def upload(self, obj_idx, bucket):
