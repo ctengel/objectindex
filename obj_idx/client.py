@@ -26,14 +26,14 @@ def parse_digest_header(header_value: str) -> bytes:
     for pair in header_value.split(','):
         algo, equals, digest = pair.partition('=')
         assert equals == '='
-        if not algo == 'sha256':
+        if not algo == 'sha-256':
             continue
         return base64.b64decode(digest.strip(':'))
     return None
 
 def encode_digest_header(checksum_val: bytes) -> str:
     """Encode SHA256 digest into an HTTP Content-Digest value"""
-    return f"sha256=:{base64.b64encode(checksum_val)}:"
+    return f"sha-256=:{base64.b64encode(checksum_val).decode()}:"
 
 def simple_upload(filename, url, file_mime, checksum_val=None):  #, fh=False):
     """Simpler Objects upload"""
@@ -181,6 +181,7 @@ def upload_core(filename: str,
             raise e
         warnings.warn(f"Conflict for file {url} {file_checksum.hex()}... "
                       f"existing object {e.response.json()['object_uuid']}")
+        # TODO consider throwing an exception?
         return None
 
     if not my_file.exists():

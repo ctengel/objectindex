@@ -4,6 +4,7 @@
 
 import argparse
 import pathlib
+import warnings
 from . import client
 
 def _upload(obj_idx, args):
@@ -15,8 +16,11 @@ def _upload(obj_idx, args):
         else:
             fileobj = client.upload_local(filename, obj_idx, args.bucket,
                                           extra=tags)
-        # TODO state whether it is a new upload?
-        print(filename, fileobj.uuid)
+        if fileobj:
+            # TODO state whether it is a new upload?
+            print(filename, fileobj.uuid)
+        else:
+            warnings.warn(f"Issue with file {filename}")
 
 def _download(obj_idx, args):
     for url in args.url:
