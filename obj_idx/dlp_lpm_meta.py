@@ -130,6 +130,7 @@ class DLPMetaData:
                                    mtime=mtime,
                                    direct=False,
                                    partial=self.partial,
-                                   extra=self.export_extra())
+                                   extra=self.export_extra(),
+                                   key_hint=mf.name)
         assert flob
         return flob
