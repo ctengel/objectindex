@@ -48,7 +48,7 @@ Hardware and such:
 - 32GB mini SDHC
   - keep the swap here; putting on USB just overloads USB power/traffic
 
-### Steps to get MinIO running
+### Steps to get object storage running
 
 #### On another machine
 1. Download `2022-04-04-raspios-bullseye-arm64-lite.img.xz` or similar from https://www.raspberrypi.com/software/operating-systems/ 
@@ -136,28 +136,11 @@ We need to periodically monitor and tune hardware:
   - https://www.usenix.org/system/files/login/articles/login_summer17_03_aghayev.pdf
 - `sudo shutdown -r now; exit`
 
-#### As minio user
-1. `wget https://dl.min.io/server/minio/release/linux-arm64/minio`
-   - alternatively `GO111MODULE=on go install github.com/minio/minio@latest` which will compile and install to `~/go/bin/minio`
-   - see the [official minio docs](https://min.io/docs/minio/linux/) for more
-2. `wget https://dl.min.io/server/mc/release/linux-arm64/mc`
-3. `chmod a+x minio mc`
-4. `MINIO_ROOT_USER=minio MINIO_ROOT_PASSWORD=password /home/minio/minio server /mnt/obj1data --address 0.0.0.0:9000 --console-address 0.0.0.0:9001`
-   - can be done as a script like `./start.sh` and run in a screen session
-5. actually setup buckets, users, replication, etc
-   - `./mc alias set xyz http://0.0.0.0:9000 minio password`
-     - for more info see the [mc docs](https://min.io/docs/minio/linux/reference/minio-mc/mc-alias-set.html)
-   - `./mc admin info minio`
-   - `./mc admin user add minio user password`
-   - `./mc mb minio/bucket`
-   - grant access from user to bucket
-     - `vim userbucketpolicy.json` - put bucket name(s) in there
-     - `./mc admin policy add minio BUCKET-policy userbucketpolicy.json`
-     - `./mc admin policy set minio BUCKET-policy user=USER`
-     - `./mc admin user info minio christest`
-   - `./mc update && ./mc admin update xyz/`
+#### Object Storage install
 
-#### systemd for minio
+Install simpler objects
+
+#### systemd example
 
 `$ systemctl list-units | grep '/path/to/objectstore' | awk '{ print $1 }'`
 
@@ -266,3 +249,6 @@ The initial client may retry step 2 as many times as needed; however to start fr
 
 Finally, once an object is in normal state, the object may be noted as permenantly deleted intentionally (i.e. so no option/desire for retry) by putting it in deleted state (completed: true, deleted: true) - putting it in this state doesn't actually delete it from object store though.
 
+### slow json lookups
+
+Add an index! See schema-79.sql
