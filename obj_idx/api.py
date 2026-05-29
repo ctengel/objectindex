@@ -7,12 +7,20 @@ from . import db
 
 ACCEPT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 REPLACE_CHAR = "_"
+LIKE_ESCAPE_CHAR = "\\"
 
 def sanitize_filename(requested_name):
     """Santize a filename into a usable key"""
     translation_table = str.maketrans({ch: REPLACE_CHAR
                                        for ch in set(requested_name) - set(ACCEPT_CHARS)})
     return requested_name.translate(translation_table)
+
+
+def escape_like_prefix(value):
+    """Escape user-provided LIKE wildcards before appending our own wildcard."""
+    return (value.replace(LIKE_ESCAPE_CHAR, LIKE_ESCAPE_CHAR * 2)
+                 .replace("%", LIKE_ESCAPE_CHAR + "%")
+                 .replace("_", LIKE_ESCAPE_CHAR + "_"))
 
 
 class Checksum(flask_restx.fields.Raw):
@@ -183,8 +191,10 @@ class FileList(flask_restx.Resource):
             # TODO fix this - currently comes up with 0 results
             return db.File.query.filter(db.File.extra[parts[0]].astext == parts[2]).all()
         if args.url.endswith('*'):
-            # TODO escape %20 etc
-            return db.File.query.filter(db.File.url.like(f"{args.url[:-1]}%")).all()
+            url_prefix = escape_like_prefix(args.url[:-1])
+            return db.File.query.filter(
+                db.File.url.like(f"{url_prefix}%", escape=LIKE_ESCAPE_CHAR),
+            ).all()
         return db.File.query.filter_by(url=args.url).all()
 
 
