@@ -97,7 +97,8 @@ class Upload(flask_restx.Resource):
         """Upload or get info"""
         exists = False
         checksum = bytes.fromhex(api.payload['checksum'])
-        assert api.payload['bucket'] in app.config['OBJIDX_BUCKETS']
+        if api.payload['bucket'] not in app.config['OBJIDX_BUCKETS']:
+            flask_restx.abort(400, "Unknown bucket", bucket=api.payload['bucket'])
         my_obj = db.Object.query.filter_by(checksum=checksum).one_or_none()
         if my_obj:
             exists = True
