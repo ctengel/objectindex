@@ -1,52 +1,107 @@
-"""Object Index Database Models"""
+"""Object Index database models (SQLAlchemy 2.0 ORM).
+
+The table names, columns, types and indexes match the existing PostgreSQL
+schema (see ``schema.sql``) exactly, so this is a drop-in replacement for the
+previous Flask-SQLAlchemy models.
+"""
 
 import datetime
 import uuid
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-import flask_sqlalchemy
-from . import app
+from typing import Optional
 
-app = app.app
-db = flask_sqlalchemy.SQLAlchemy(app)
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    String,
+    create_engine,
+    select,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+    sessionmaker,
+)
 
-# https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-one
-# https://flask-sqlalchemy.palletsprojects.com/en/2.x/models/
-# db.Column(db.Text)
-# db.Column(db.DateTime, onupdate=datetime.datetime.now)
-
-class Object(db.Model):
-    """Object table"""
-    uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
-    bucket = db.Column(db.String(63), nullable=False)
-    key = db.Column(db.String(1023), nullable=False)
-    obj_size = db.Column(db.BigInteger, nullable=False) # NOTE Postgres doesn't support unsigned
-    checksum = db.Column(db.LargeBinary(32), index=True)
-    ctime = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
-    mime = db.Column(db.String(255))
-    completed = db.Column(db.Boolean, default=False, nullable=False)
-    deleted = db.Column(db.Boolean, default=False, nullable=False)
-    extra = db.Column(JSONB)
-    files = db.relationship('File', backref='file_object', lazy=True)
-    __table_args__ = (db.Index('buckey', "bucket", "key"), )
-
-class File(db.Model):
-    """File table"""
-    uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
-    obj_uuid = db.Column(UUID(as_uuid=True),
-                         db.ForeignKey('object.uuid'),
-                         index=True,
-                         nullable=True)
-    ctime = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
-    mtime = db.Column(db.DateTime, nullable=True)
-    url = db.Column(db.String(2047), index=True, nullable=False)
-    direct = db.Column(db.Boolean, default=True, nullable=False)
-    partial = db.Column(db.Boolean, default=False, nullable=False)
-    extra = db.Column(JSONB)
-    ul_user = db.Column(db.String(15))
-    ul_sw = db.Column(db.String(15))
-    ul_host = db.Column(db.String(64))
+from .config import get_settings
 
 
+class Base(DeclarativeBase):
+    """Declarative base for all ObjectIndex models."""
 
-#if __name__ == '__main__':
-#    db.create_all()
+
+class Object(Base):
+    """A unique stored object (deduplicated by checksum)."""
+
+    __tablename__ = "object"
+    __table_args__ = (Index("buckey", "bucket", "key"),)
+
+    uuid: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid1
+    )
+    bucket: Mapped[str] = mapped_column(String(63), nullable=False)
+    key: Mapped[str] = mapped_column(String(1023), nullable=False)
+    # NOTE Postgres doesn't support unsigned
+    obj_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    checksum: Mapped[Optional[bytes]] = mapped_column(LargeBinary(32), index=True)
+    ctime: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False
+    )
+    mime: Mapped[Optional[str]] = mapped_column(String(255))
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    extra: Mapped[Optional[dict]] = mapped_column(JSONB)
+
+    files = relationship(
+        "File", back_populates="file_object", lazy="selectin"
+    )
+
+
+class File(Base):
+    """A source URL that maps to an :class:`Object`."""
+
+    __tablename__ = "file"
+
+    uuid: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid1
+    )
+    obj_uuid: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("object.uuid"), index=True, nullable=True
+    )
+    ctime: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False
+    )
+    mtime: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
+    url: Mapped[str] = mapped_column(String(2047), index=True, nullable=False)
+    direct: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    partial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    extra: Mapped[Optional[dict]] = mapped_column(JSONB)
+    ul_user: Mapped[Optional[str]] = mapped_column(String(15))
+    ul_sw: Mapped[Optional[str]] = mapped_column(String(15))
+    ul_host: Mapped[Optional[str]] = mapped_column(String(64))
+
+    file_object = relationship(
+        "Object", back_populates="files", lazy="joined"
+    )
+
+
+# Engine / session factory, built from settings at import time.
+engine = create_engine(get_settings().database_url, future=True)
+SessionLocal = sessionmaker(
+    bind=engine, autoflush=False, expire_on_commit=False, future=True
+)
+
+
+def get_session():
+    """FastAPI dependency yielding a scoped Session."""
+    with SessionLocal() as session:
+        yield session
+
+
+__all__ = ["Base", "Object", "File", "engine", "SessionLocal", "get_session", "select"]

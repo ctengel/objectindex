@@ -22,11 +22,11 @@ Consume S3 API(s) (from MinIO or the like) and expose a rich metadata store.
 `pip3 install https://github.com/ctengel/objectindex/archive/refs/heads/main.zip`
 
 There are then a few different ways to use this:
-- RESTful API: `FLASK_APP=obj_idx.api OBJIDX_SETTINGS=/path/to/api.cfg flask run --host=0.0.0.0`
+- RESTful API (FastAPI): `uvicorn obj_idx.api:app --host=0.0.0.0` (configured via `OBJIDX_*` env vars, see below)
   - need simpler-objects running
   - need postgres running and setup
-    - see `OBJIDX_SETTINGS=/path/to/api.cfg python3 -m obj_idx.db_create`
-  - need API config file (see below)
+    - see `python3 -m obj_idx.db_create` (with the same `OBJIDX_*` env vars set)
+  - interactive API docs at `/docs`
 - GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 5001 --host=0.0.0.0`
   - need GUI config file (see below)
 - CLI client: `obj-idx-client`
@@ -188,11 +188,11 @@ Note also that modifying `/var/lib/pgsql/data/pg_hba.conf` to include `scram-sha
 
 Following steps to be run as user who will run the API.
 ```
-OBJIDX_SETTINGS=../samp.cfg python3 -m obj_idx.db_create
+OBJIDX_DATABASE_URL=postgresql+psycopg2:///DB OBJIDX_S3=... OBJIDX_BUCKETS='["bucket1"]' python3 -m obj_idx.db_create
 pg_dump --schema-only DB > schema.sql
 ```
 
-The `db_create.py` script will empty a database and create tables in the schema, and uses the same config file as the web app.
+The `db_create.py` script will empty a database and create tables in the schema, and uses the same `OBJIDX_*` environment configuration as the API.
 
 #### Moving/deleting buckets
 
@@ -214,17 +214,22 @@ objidx1d=> delete from object where bucket='old';
 
 ### API
 
+The API (FastAPI) is configured by environment variables, all prefixed
+`OBJIDX_` (a `.env` file in the working directory is also read). See
+`sample.env`:
+
 ```
-DEBUG = True
-SQLALCHEMY_DATABASE_URI = 'postgresql:///objidx'
-SQLALCHEMY_TRACK_MODIFICATIONS = False
-OBJIDX_S3 = 'http://user:pass@localhost:9000/'
-OBJIDX_BUCKETS = ['bucket1']
+OBJIDX_DATABASE_URL=postgresql+psycopg2:///objidx
+OBJIDX_S3=http://user:pass@localhost:9000/
+OBJIDX_BUCKETS=["bucket1"]
 ```
 
-- `OBJIDX_S3` is a special URL for S3
-- `OBJIDX_BUCKETS` is a list of buckets that may be used.
-- The rest are standard Flask and sqlalchemy options
+- `OBJIDX_DATABASE_URL` is the SQLAlchemy database URL (include the driver).
+- `OBJIDX_S3` is a special URL for S3.
+- `OBJIDX_BUCKETS` is a JSON list of buckets that may be used.
+
+Previous releases used a Flask `.cfg` file referenced by `OBJIDX_SETTINGS`;
+the API no longer uses it (the GUI still does — see below).
 
 ### GUI
 
@@ -233,6 +238,50 @@ DEBUG = True
 OBJIDX_URL="http://127.0.0.1:5000/"  # change if running on a different host
 OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideally pass thru in fut
 ```
+
+## Testing
+
+The API has a black-box contract test suite under `tests/`. The same tests run
+against both the FastAPI app and a frozen copy of the legacy Flask app
+(`tests/oilegacy/`, skipped automatically unless `flask-restx` is installed), so
+they double as a drop-in-replacement check.
+
+The tests need a real PostgreSQL (the suite relies on JSONB, `bytea` and
+`LIKE`-escaping, which SQLite can't reproduce). Point `TEST_DATABASE_URL` at any
+database you can create/drop tables in — the suite recreates the two tables
+before every test:
+
+```bash
+pip install -e '.[test]'
+TEST_DATABASE_URL=postgresql+psycopg2:///objidx_test python3 -m pytest tests/
+```
+
+Use `-k fastapi` (or `-k flask`) to run a single implementation.
+
+### Spinning up a throwaway PostgreSQL
+
+If you don't already have a database handy, you can run a disposable one from a
+local data directory without touching any system service:
+
+```bash
+# 1. Initialize a fresh data dir (trust auth, your OS user as superuser)
+initdb -D "$PWD/pgdata" -U "$USER" --auth=trust
+
+# 2. Start it with a socket in /tmp (avoids needing /var/run/postgresql)
+pg_ctl -D "$PWD/pgdata" -o "-k /tmp -p 5432" -l "$PWD/pgdata/pg.log" start
+
+# 3. Create the test database
+createdb -h /tmp -U "$USER" objidx_test
+
+# 4. Run the suite against it
+TEST_DATABASE_URL="postgresql+psycopg2://$USER@/objidx_test?host=/tmp" python3 -m pytest tests/
+
+# Tear down when done
+pg_ctl -D "$PWD/pgdata" stop && rm -rf "$PWD/pgdata"
+```
+
+(Add `pgdata/` to your local ignores, or put it outside the repo, so the data
+directory isn't accidentally committed.)
 
 ## Issues
 
