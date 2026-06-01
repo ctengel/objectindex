@@ -110,3 +110,25 @@ class ObjectUpdate(BaseModel):
 
     completed: Optional[bool] = None
     deleted: Optional[bool] = None
+
+
+class DetailResponse(BaseModel):
+    """Standard error body for ``HTTPException`` responses (404, some 400s)."""
+
+    detail: str
+
+
+class UploadErrorResponse(BaseModel):
+    """400 from ``POST /upload/`` — unknown bucket (includes ``bucket``) or
+    object size mismatch (``message`` only)."""
+
+    message: str
+    bucket: Optional[str] = None
+
+
+class ConflictResponse(BaseModel):
+    """409 from ``POST /upload/`` when an upload of the same checksum may be in
+    progress; carries the existing ``object_uuid``."""
+
+    message: str
+    object_uuid: str

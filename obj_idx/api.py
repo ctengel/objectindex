@@ -10,13 +10,18 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import File, Object, get_session, select
 from .schemas import (
+    ConflictResponse,
+    DetailResponse,
     FileRead,
     ObjectRead,
     ObjectUpdate,
     S3Link,
+    UploadErrorResponse,
     UploadRequest,
     UploadResult,
 )
+
+NOT_FOUND = {404: {"model": DetailResponse}}
 
 ACCEPT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 REPLACE_CHAR = "_"
@@ -49,7 +54,14 @@ def get_dl_url(objobj: Object) -> str:
     return f"{get_settings().s3}{objobj.bucket}/{objobj.key}"
 
 
-@app.post("/upload/", status_code=201, response_model=UploadResult)
+@app.post("/upload/", status_code=201, response_model=UploadResult,
+          responses={
+              400: {"model": UploadErrorResponse,
+                    "description": "Unknown bucket or object size mismatch"},
+              409: {"model": ConflictResponse,
+                    "description": "An upload of an object with the same "
+                                   "checksum may currently be in progress"},
+          })
 def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     """Upload or get info"""
     exists = False
@@ -123,7 +135,9 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     return result
 
 
-@app.get("/file/", response_model=list[FileRead])
+@app.get("/file/", response_model=list[FileRead],
+         responses={400: {"model": DetailResponse,
+                          "description": "Invalid url/extra query"}})
 def search_files(url: Optional[str] = None,
                  extra: Optional[str] = None,
                  session: Session = Depends(get_session)):
@@ -146,7 +160,7 @@ def search_files(url: Optional[str] = None,
     return session.scalars(select(File).where(File.url == url)).all()
 
 
-@app.get("/file/{fil_uuid}/", response_model=FileRead)
+@app.get("/file/{fil_uuid}/", response_model=FileRead, responses=NOT_FOUND)
 def get_file(fil_uuid: uuid.UUID, session: Session = Depends(get_session)):
     """Get a single file"""
     my_file = session.get(File, fil_uuid)
@@ -164,7 +178,7 @@ def search_objects(checksum: str, session: Session = Depends(get_session)):
     ).all()
 
 
-@app.get("/object/{obj_uuid}/", response_model=ObjectRead)
+@app.get("/object/{obj_uuid}/", response_model=ObjectRead, responses=NOT_FOUND)
 def get_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)):
     """Get a single object"""
     my_obj = session.get(Object, obj_uuid)
@@ -173,7 +187,12 @@ def get_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)):
     return my_obj
 
 
-@app.put("/object/{obj_uuid}/", response_model=ObjectRead)
+@app.put("/object/{obj_uuid}/", response_model=ObjectRead,
+         responses={
+             400: {"model": DetailResponse,
+                   "description": "Cannot set both completed and deleted"},
+             404: {"model": DetailResponse},
+         })
 def update_object(obj_uuid: uuid.UUID,
                   payload: ObjectUpdate,
                   session: Session = Depends(get_session)):
@@ -197,7 +216,7 @@ def update_object(obj_uuid: uuid.UUID,
     return my_obj
 
 
-@app.get("/object/{obj_uuid}/download", response_model=S3Link)
+@app.get("/object/{obj_uuid}/download", response_model=S3Link, responses=NOT_FOUND)
 def download_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)):
     """Get S3 download info for object"""
     my_obj = session.get(Object, obj_uuid)
