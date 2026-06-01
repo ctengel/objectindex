@@ -194,6 +194,19 @@ pg_dump --schema-only DB > schema.sql
 
 The `db_create.py` script will empty a database and create tables in the schema, and uses the same `OBJIDX_*` environment configuration as the API.
 
+#### Migrations
+
+Schema changes ship as plain SQL files under `migrations/`, applied once with
+`psql` (take a backup first):
+
+```
+psql "$DATABASE" -f migrations/001_checksum_bytea_to_hex.sql
+```
+
+`001_checksum_bytea_to_hex.sql` converts `object.checksum` from `bytea` to the
+64-char lowercase hex `varchar(64)` used by the SQLModel build (the API already
+exposed the checksum as hex, so clients are unaffected).
+
 #### Moving/deleting buckets
 
 Moving
@@ -241,15 +254,15 @@ OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideal
 
 ## Testing
 
-The API has a black-box contract test suite under `tests/`. The same tests run
-against both the FastAPI app and a frozen copy of the legacy Flask app
-(`tests/oilegacy/`, skipped automatically unless `flask-restx` is installed), so
-they double as a drop-in-replacement check.
+The API has a black-box contract test suite under `tests/`. It exercises the
+FastAPI app (now backed by SQLModel) over HTTP and pins the REST wire contract.
+(The frozen legacy Flask app in `tests/oilegacy/` is kept for reference, but the
+cross-check is disabled on this branch because the checksum column changed from
+`bytea` to hex text; drop-in parity was already proven on the SQLAlchemy branch.)
 
-The tests need a real PostgreSQL (the suite relies on JSONB, `bytea` and
-`LIKE`-escaping, which SQLite can't reproduce). Point `TEST_DATABASE_URL` at any
-database you can create/drop tables in — the suite recreates the two tables
-before every test:
+The tests need a real PostgreSQL (the suite relies on JSONB and `LIKE`-escaping,
+which SQLite can't reproduce). Point `TEST_DATABASE_URL` at any database you can
+create/drop tables in — the suite recreates the two tables before every test:
 
 ```bash
 pip install -e '.[test]'

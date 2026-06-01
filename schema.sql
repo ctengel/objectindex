@@ -50,7 +50,7 @@ CREATE TABLE public.object (
     bucket character varying(63) NOT NULL,
     key character varying(1023) NOT NULL,
     obj_size bigint NOT NULL,
-    checksum bytea,
+    checksum character varying(64),
     ctime timestamp without time zone NOT NULL,
     mime character varying(255),
     completed boolean NOT NULL,

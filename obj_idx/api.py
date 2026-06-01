@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlmodel import Session
 
 from .config import get_settings
 from .db import File, Object, get_session, select
@@ -65,12 +65,12 @@ def get_dl_url(objobj: Object) -> str:
 def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     """Upload or get info"""
     exists = False
-    checksum = bytes.fromhex(payload.checksum)
+    checksum = payload.checksum
     if payload.bucket not in get_settings().buckets:
         return JSONResponse(status_code=400,
                             content={"message": "Unknown bucket",
                                      "bucket": payload.bucket})
-    my_obj = session.scalars(
+    my_obj = session.exec(
         select(Object).where(Object.checksum == checksum)
     ).one_or_none()
     if my_obj:
@@ -97,14 +97,14 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
             my_obj.extra = payload.extra_object
     else:
         my_obj = Object(bucket=payload.bucket,
-                        key=f"{checksum.hex()}-{sanitize_filename(payload.filename or '')}",
+                        key=f"{checksum}-{sanitize_filename(payload.filename or '')}",
                         obj_size=payload.obj_size,
                         checksum=checksum,
                         mime=payload.mime,
                         extra=payload.extra_object)
         session.add(my_obj)
         session.flush()
-    my_file = session.scalars(
+    my_file = session.exec(
         select(File).where(File.url == payload.url, File.obj_uuid == my_obj.uuid)
     ).one_or_none()
     if my_file:
@@ -150,14 +150,14 @@ def search_files(url: Optional[str] = None,
         if sep != "=":
             raise HTTPException(status_code=400, detail="extra must be key=value")
         stmt = select(File).where(File.extra[key].astext == value)
-        return session.scalars(stmt).all()
+        return session.exec(stmt).all()
     if url and url.endswith("*"):
         url_prefix = escape_like_prefix(url[:-1])
         stmt = select(File).where(
             File.url.like(f"{url_prefix}%", escape=LIKE_ESCAPE_CHAR)
         )
-        return session.scalars(stmt).all()
-    return session.scalars(select(File).where(File.url == url)).all()
+        return session.exec(stmt).all()
+    return session.exec(select(File).where(File.url == url)).all()
 
 
 @app.get("/file/{fil_uuid}/", response_model=FileRead, responses=NOT_FOUND)
@@ -172,9 +172,8 @@ def get_file(fil_uuid: uuid.UUID, session: Session = Depends(get_session)):
 @app.get("/object/", response_model=list[ObjectRead])
 def search_objects(checksum: str, session: Session = Depends(get_session)):
     """Search for objects by checksum"""
-    checksum_bytes = bytes.fromhex(checksum)
-    return session.scalars(
-        select(Object).where(Object.checksum == checksum_bytes)
+    return session.exec(
+        select(Object).where(Object.checksum == checksum)
     ).all()
 
 

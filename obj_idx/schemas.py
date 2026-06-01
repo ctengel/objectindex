@@ -12,7 +12,7 @@ import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict
 
 
 class BriefFile(BaseModel):
@@ -25,7 +25,7 @@ class BriefFile(BaseModel):
 
 
 class ObjectRead(BaseModel):
-    """Full object view (checksum rendered as hex)."""
+    """Full object view (checksum is the lowercase hex SHA-256)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -33,17 +33,13 @@ class ObjectRead(BaseModel):
     bucket: str
     key: str
     obj_size: int
-    checksum: Optional[bytes] = None
+    checksum: Optional[str] = None
     ctime: datetime.datetime
     mime: Optional[str] = None
     completed: bool
     deleted: bool
     extra: Optional[Any] = None
     files: list[BriefFile] = []
-
-    @field_serializer("checksum")
-    def _serialize_checksum(self, value: Optional[bytes]) -> Optional[str]:
-        return value.hex() if value is not None else None
 
 
 class FileRead(BaseModel):
