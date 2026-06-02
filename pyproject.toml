@@ -17,6 +17,7 @@ dependencies = [
   'fastapi >= 0.110',
   'uvicorn[standard] >= 0.27',
   'pydantic-settings >= 2.0',
+  'sqlmodel >= 0.0.38',
   'flask >= 2.1',
   'requests >= 2.27',
   'psycopg2 >= 2.9',

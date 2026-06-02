@@ -1,6 +1,6 @@
 """Run this module to (re)create DB tables (drops and recreates all tables)."""
 
-from .db import Base, engine
+from .db import SQLModel, engine
 
-Base.metadata.drop_all(engine)
-Base.metadata.create_all(engine)
+SQLModel.metadata.drop_all(engine)
+SQLModel.metadata.create_all(engine)
