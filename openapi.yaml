@@ -1,0 +1,590 @@
+openapi: 3.1.0
+info:
+  title: Object Index API
+  description: API for storing info about Objects
+  version: '0.1'
+paths:
+  /upload/:
+    post:
+      summary: Upload
+      description: Upload or get info
+      operationId: upload_upload__post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResult'
+        '400':
+          description: Unknown bucket or object size mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadErrorResponse'
+        '409':
+          description: An upload of an object with the same checksum may currently be in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /file/:
+    get:
+      summary: Search Files
+      description: Search for a file by source URL or by an extra-JSON tag
+      operationId: search_files_file__get
+      parameters:
+      - name: url
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+      - name: extra
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Extra
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileRead'
+                title: Response Search Files File  Get
+        '400':
+          description: Invalid url/extra query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /file/{fil_uuid}/:
+    get:
+      summary: Get File
+      description: Get a single file
+      operationId: get_file_file__fil_uuid___get
+      parameters:
+      - name: fil_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Fil Uuid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileRead'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: Not Found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /object/:
+    get:
+      summary: Search Objects
+      description: Search for objects by checksum
+      operationId: search_objects_object__get
+      parameters:
+      - name: checksum
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Checksum
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObjectRead'
+                title: Response Search Objects Object  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /object/{obj_uuid}/:
+    get:
+      summary: Get Object
+      description: Get a single object
+      operationId: get_object_object__obj_uuid___get
+      parameters:
+      - name: obj_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Obj Uuid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectRead'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: Not Found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      summary: Update Object
+      description: Let us know an upload is completed (or deleted)
+      operationId: update_object_object__obj_uuid___put
+      parameters:
+      - name: obj_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Obj Uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObjectUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectRead'
+        '400':
+          description: Cannot set both completed and deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: Not Found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /object/{obj_uuid}/download:
+    get:
+      summary: Download Object
+      description: Get S3 download info for object
+      operationId: download_object_object__obj_uuid__download_get
+      parameters:
+      - name: obj_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Obj Uuid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/S3Link'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: Not Found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    BriefFile:
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          title: Uuid
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - uuid
+      - url
+      title: BriefFile
+      description: Minimal file view embedded inside an Object.
+    ConflictResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+        object_uuid:
+          type: string
+          title: Object Uuid
+      type: object
+      required:
+      - message
+      - object_uuid
+      title: ConflictResponse
+      description: '409 from ``POST /upload/`` when an upload of the same checksum may be in
+
+        progress; carries the existing ``object_uuid``.'
+    DetailResponse:
+      properties:
+        detail:
+          type: string
+          title: Detail
+      type: object
+      required:
+      - detail
+      title: DetailResponse
+      description: Standard error body for ``HTTPException`` responses (404, some 400s).
+    FileRead:
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          title: Uuid
+        url:
+          type: string
+          title: Url
+        ctime:
+          type: string
+          format: date-time
+          title: Ctime
+        mtime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Mtime
+        direct:
+          type: boolean
+          title: Direct
+        partial:
+          type: boolean
+          title: Partial
+        extra:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Extra
+        ul_user:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ul User
+        ul_sw:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ul Sw
+        ul_host:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ul Host
+        file_object:
+          anyOf:
+          - $ref: '#/components/schemas/ObjectRead'
+          - type: 'null'
+      type: object
+      required:
+      - uuid
+      - url
+      - ctime
+      - direct
+      - partial
+      title: FileRead
+      description: Full file view (embeds the full object as ``file_object``).
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ObjectRead:
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          title: Uuid
+        bucket:
+          type: string
+          title: Bucket
+        key:
+          type: string
+          title: Key
+        obj_size:
+          type: integer
+          title: Obj Size
+        checksum:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Checksum
+        ctime:
+          type: string
+          format: date-time
+          title: Ctime
+        mime:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mime
+        completed:
+          type: boolean
+          title: Completed
+        deleted:
+          type: boolean
+          title: Deleted
+        extra:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Extra
+        files:
+          items:
+            $ref: '#/components/schemas/BriefFile'
+          type: array
+          title: Files
+          default: []
+      type: object
+      required:
+      - uuid
+      - bucket
+      - key
+      - obj_size
+      - ctime
+      - completed
+      - deleted
+      title: ObjectRead
+      description: Full object view (checksum is the lowercase hex SHA-256).
+    ObjectUpdate:
+      properties:
+        completed:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Completed
+        deleted:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Deleted
+      type: object
+      title: ObjectUpdate
+      description: Body of ``PUT /object/{uuid}/``.
+    S3Link:
+      properties:
+        presigned:
+          type: string
+          title: Presigned
+      type: object
+      required:
+      - presigned
+      title: S3Link
+      description: Direct object URL (named ``presigned`` for historical reasons).
+    UploadErrorResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+        bucket:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Bucket
+      type: object
+      required:
+      - message
+      title: UploadErrorResponse
+      description: '400 from ``POST /upload/`` — unknown bucket (includes ``bucket``) or
+
+        object size mismatch (``message`` only).'
+    UploadLinks:
+      properties:
+        s3:
+          type: string
+          title: S3
+        finished:
+          type: string
+          title: Finished
+      type: object
+      required:
+      - s3
+      - finished
+      title: UploadLinks
+      description: Where to PUT the bytes and how to mark the upload finished.
+    UploadRequest:
+      properties:
+        url:
+          type: string
+          title: Url
+        bucket:
+          type: string
+          title: Bucket
+        obj_size:
+          type: integer
+          title: Obj Size
+        checksum:
+          type: string
+          title: Checksum
+        direct:
+          type: boolean
+          title: Direct
+          default: true
+        partial:
+          type: boolean
+          title: Partial
+          default: false
+        mtime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Mtime
+        filename:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filename
+        mime:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mime
+        ul_user:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ul User
+        ul_sw:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ul Sw
+        ul_host:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ul Host
+        extra_file:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Extra File
+        extra_object:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Extra Object
+      type: object
+      required:
+      - url
+      - bucket
+      - obj_size
+      - checksum
+      title: UploadRequest
+      description: Body of ``POST /upload/``.
+    UploadResult:
+      properties:
+        file:
+          $ref: '#/components/schemas/FileRead'
+        exists:
+          type: boolean
+          title: Exists
+        upload:
+          anyOf:
+          - $ref: '#/components/schemas/UploadLinks'
+          - type: 'null'
+        download:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Download
+      type: object
+      required:
+      - file
+      - exists
+      title: UploadResult
+      description: Response from ``POST /upload/``.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
