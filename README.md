@@ -297,4 +297,7 @@ Finally, once an object is in normal state, the object may be noted as permenant
 
 ### slow json lookups
 
-Add an index! See schema-79.sql
+The expression index on `extra->>'ytdl-id'` is now built into the models
+(`ix_file_extra_ytdl_id`), so a fresh `db_create` includes it. Operators of a
+pre-existing database can add it without recreating tables by running
+`scripts/schema-79.sql`.

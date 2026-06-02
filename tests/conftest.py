@@ -61,6 +61,7 @@ CREATE TABLE file (
     ul_host character varying(64)
 );
 CREATE INDEX buckey ON object USING btree (bucket, key);
+CREATE INDEX ix_file_extra_ytdl_id ON file USING btree ((extra ->> 'ytdl-id'));
 CREATE INDEX ix_file_obj_uuid ON file USING btree (obj_uuid);
 CREATE INDEX ix_file_url ON file USING btree (url);
 CREATE INDEX ix_object_checksum ON object USING btree (checksum);

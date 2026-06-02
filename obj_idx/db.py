@@ -77,6 +77,11 @@ class File(SQLModel, table=True):
     )
 
 
+# Expression index speeding up GET /file/?extra=ytdl-id=... (see issue #79).
+# Operators of pre-existing databases can add it via scripts/schema-79.sql.
+Index("ix_file_extra_ytdl_id", File.extra["ytdl-id"].astext)
+
+
 # Engine / session factory, built from settings at import time.
 engine = create_engine(get_settings().database_url)
 
