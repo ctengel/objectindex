@@ -1,8 +1,9 @@
 """Black-box characterization tests for the ObjectIndex REST API.
 
-The exact same tests run against the legacy Flask-RESTX app and the new
-FastAPI app (see ``conftest.py``'s ``server`` fixture).  They pin the wire
-contract that ``gui.py`` / ``clilib.py`` / ``client.py`` depend on.
+Driven in-process via FastAPI's ``TestClient`` (see ``conftest.py``'s ``client``
+fixture, which also resets the database to an empty schema before each test).
+They pin the wire contract that ``gui.py`` / ``clilib.py`` / ``client.py``
+depend on.
 """
 
 import hashlib
@@ -48,24 +49,24 @@ def make_payload(content=b"hello world",
     return payload
 
 
-def _upload(api, **kwargs):
+def _upload(client, **kwargs):
     payload = make_payload(**kwargs)
-    resp = api.post("/upload/", payload)
+    resp = client.post("/upload/", json=payload)
     return resp, payload
 
 
-def _complete(api, object_url):
-    return api.put(object_url, {"completed": True})
+def _complete(client, object_url):
+    return client.put(object_url, json={"completed": True})
 
 
 # --------------------------------------------------------------------------
 # Upload
 # --------------------------------------------------------------------------
 
-def test_upload_new(api):
+def test_upload_new(client):
     content = b"brand new content"
     chk = _checksum(content)
-    resp, _ = _upload(api, content=content)
+    resp, _ = _upload(client, content=content)
     assert resp.status_code == 201
     body = resp.json()
 
@@ -87,74 +88,84 @@ def test_upload_new(api):
     assert body["upload"]["finished"] == f"/object/{obj['uuid']}/"
 
 
-def test_upload_dedup_returns_existing(api):
+def test_upload_dedup_returns_existing(client):
     content = b"dedup me"
-    resp1, _ = _upload(api, content=content)
+    resp1, _ = _upload(client, content=content)
     obj_url = resp1.json()["upload"]["finished"]
-    assert _complete(api, obj_url).status_code == 200
+    assert _complete(client, obj_url).status_code == 200
 
     # second upload of same checksum from a different url -> exists, download
-    resp2, _ = _upload(api, content=content, url="file://host/other/copy.txt")
+    resp2, _ = _upload(client, content=content, url="file://host/other/copy.txt")
     assert resp2.status_code == 201
     body = resp2.json()
     assert body["exists"] is True
     assert body["download"] == resp1.json()["upload"]["s3"]
 
 
-def test_upload_conflict_409_has_object_uuid(api):
+def test_upload_conflict_409_has_object_uuid(client):
     content = b"in progress"
-    resp1, _ = _upload(api, content=content)
+    resp1, _ = _upload(client, content=content)
     obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
 
     # second upload while the first is still incomplete -> conflict
-    resp2, _ = _upload(api, content=content, url="file://host/other.txt")
+    resp2, _ = _upload(client, content=content, url="file://host/other.txt")
     assert resp2.status_code == 409
     assert resp2.json()["object_uuid"] == obj_uuid
 
 
-def test_upload_size_mismatch_rejected(api):
+def test_upload_size_mismatch_rejected(client):
     content = b"sizing"
-    resp1, _ = _upload(api, content=content)
-    _complete(api, resp1.json()["upload"]["finished"])
+    resp1, _ = _upload(client, content=content)
+    _complete(client, resp1.json()["upload"]["finished"])
 
     # same checksum, different declared size
-    resp2, _ = _upload(api, content=content, obj_size=999999,
+    resp2, _ = _upload(client, content=content, obj_size=999999,
                        url="file://host/other.txt")
     assert resp2.status_code >= 400
 
 
-def test_reupload_after_delete(api):
+def test_reupload_after_delete(client):
     content = b"retry me"
-    resp1, _ = _upload(api, content=content)
+    resp1, _ = _upload(client, content=content)
     obj_url = resp1.json()["upload"]["finished"]
-    assert api.put(obj_url, {"deleted": True}).status_code == 200
+    assert client.put(obj_url, json={"deleted": True}).status_code == 200
 
-    resp2, _ = _upload(api, content=content)
+    resp2, _ = _upload(client, content=content)
     assert resp2.status_code == 201
     body = resp2.json()
     assert body["exists"] is False
     assert "upload" in body
 
 
-def test_unknown_bucket_400_has_bucket(api):
-    resp, _ = _upload(api, bucket="nope")
+def test_unknown_bucket_400_has_bucket(client):
+    resp, _ = _upload(client, bucket="nope")
     assert resp.status_code == 400
     assert resp.json()["bucket"] == "nope"
+
+
+def test_upload_missing_required_field_422(client):
+    # FastAPI validates the request body against UploadRequest; a missing
+    # required field returns 422 (not possible to assert against flask-restx).
+    payload = make_payload()
+    del payload["checksum"]
+    resp = client.post("/upload/", json=payload)
+    assert resp.status_code == 422
+    assert any(err["loc"][-1] == "checksum" for err in resp.json()["detail"])
 
 
 # --------------------------------------------------------------------------
 # File endpoints
 # --------------------------------------------------------------------------
 
-def test_get_file_404(api):
-    resp = api.get(f"/file/{uuid.uuid4()}/")
+def test_get_file_404(client):
+    resp = client.get(f"/file/{uuid.uuid4()}/")
     assert resp.status_code == 404
 
 
-def test_get_file_embeds_object(api):
-    resp1, _ = _upload(api)
+def test_get_file_embeds_object(client):
+    resp1, _ = _upload(client)
     fil_uuid = resp1.json()["file"]["uuid"]
-    resp = api.get(f"/file/{fil_uuid}/")
+    resp = client.get(f"/file/{fil_uuid}/")
     assert resp.status_code == 200
     body = resp.json()
     assert body["uuid"] == fil_uuid
@@ -162,81 +173,81 @@ def test_get_file_embeds_object(api):
     assert body["file_object"]["key"].endswith("-hello.txt")
 
 
-def test_file_search_exact(api):
+def test_file_search_exact(client):
     url = "file://host/exact/one.txt"
-    _upload(api, content=b"one", url=url)
-    _upload(api, content=b"two", url="file://host/exact/two.txt")
-    resp = api.get("/file/", params={"url": url})
+    _upload(client, content=b"one", url=url)
+    _upload(client, content=b"two", url="file://host/exact/two.txt")
+    resp = client.get("/file/", params={"url": url})
     assert resp.status_code == 200
     rows = resp.json()
     assert [r["url"] for r in rows] == [url]
     assert rows[0]["file_object"]  # full object embedded
 
 
-def test_file_search_wildcard_prefix(api):
-    _upload(api, content=b"a", url="file://host/dir/a.txt")
-    _upload(api, content=b"b", url="file://host/dir/b.txt")
-    _upload(api, content=b"c", url="file://other/c.txt")
-    resp = api.get("/file/", params={"url": "file://host/dir/*"})
+def test_file_search_wildcard_prefix(client):
+    _upload(client, content=b"a", url="file://host/dir/a.txt")
+    _upload(client, content=b"b", url="file://host/dir/b.txt")
+    _upload(client, content=b"c", url="file://other/c.txt")
+    resp = client.get("/file/", params={"url": "file://host/dir/*"})
     assert resp.status_code == 200
     urls = sorted(r["url"] for r in resp.json())
     assert urls == ["file://host/dir/a.txt", "file://host/dir/b.txt"]
 
 
-def test_file_search_wildcard_escapes_underscore(api):
+def test_file_search_wildcard_escapes_underscore(client):
     # '_' is a SQL LIKE single-char wildcard; it must be escaped so it only
     # matches a literal underscore (regression test for the escaping commit).
-    _upload(api, content=b"u1", url="file://host/a_b.txt")
-    _upload(api, content=b"u2", url="file://host/axb.txt")
-    resp = api.get("/file/", params={"url": "file://host/a_*"})
+    _upload(client, content=b"u1", url="file://host/a_b.txt")
+    _upload(client, content=b"u2", url="file://host/axb.txt")
+    resp = client.get("/file/", params={"url": "file://host/a_*"})
     assert resp.status_code == 200
     urls = sorted(r["url"] for r in resp.json())
     assert urls == ["file://host/a_b.txt"]
 
 
-def test_file_search_wildcard_escapes_percent(api):
-    _upload(api, content=b"p1", url="file://host/p%q.txt")
-    _upload(api, content=b"p2", url="file://host/pXXq.txt")
-    resp = api.get("/file/", params={"url": "file://host/p%*"})
+def test_file_search_wildcard_escapes_percent(client):
+    _upload(client, content=b"p1", url="file://host/p%q.txt")
+    _upload(client, content=b"p2", url="file://host/pXXq.txt")
+    resp = client.get("/file/", params={"url": "file://host/p%*"})
     assert resp.status_code == 200
     urls = sorted(r["url"] for r in resp.json())
     assert urls == ["file://host/p%q.txt"]
 
 
-def test_file_search_by_extra(api):
+def test_file_search_by_extra(client):
     # JSONB extra-field search (extra->>key == value). The api.py TODO claiming
     # this returns 0 results is stale; it works under SQLAlchemy 2.0 and the
     # FastAPI rewrite must keep it working.
     url = "file://host/tagged.txt"
-    resp1, _ = _upload(api, content=b"tagged", url=url,
+    resp1, _ = _upload(client, content=b"tagged", url=url,
                        extra_file={"colour": "blue"})
-    _complete(api, resp1.json()["upload"]["finished"])
+    _complete(client, resp1.json()["upload"]["finished"])
 
-    resp = api.get("/file/", params={"extra": "colour=blue"})
+    resp = client.get("/file/", params={"extra": "colour=blue"})
     assert resp.status_code == 200
     rows = resp.json()
     assert [r["url"] for r in rows] == [url]
     # a non-matching value returns nothing
-    assert api.get("/file/", params={"extra": "colour=red"}).json() == []
+    assert client.get("/file/", params={"extra": "colour=red"}).json() == []
 
 
 # --------------------------------------------------------------------------
 # Object endpoints
 # --------------------------------------------------------------------------
 
-def test_get_object_404(api):
-    resp = api.get(f"/object/{uuid.uuid4()}/")
+def test_get_object_404(client):
+    resp = client.get(f"/object/{uuid.uuid4()}/")
     assert resp.status_code == 404
 
 
-def test_get_object_hex_and_brief_files(api):
+def test_get_object_hex_and_brief_files(client):
     content = b"object body"
     chk = _checksum(content)
-    resp1, _ = _upload(api, content=content)
+    resp1, _ = _upload(client, content=content)
     obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
     fil_uuid = resp1.json()["file"]["uuid"]
 
-    resp = api.get(f"/object/{obj_uuid}/")
+    resp = client.get(f"/object/{obj_uuid}/")
     assert resp.status_code == 200
     body = resp.json()
     assert body["checksum"] == chk  # hex string
@@ -251,46 +262,60 @@ def test_get_object_hex_and_brief_files(api):
     assert "file_object" not in brief
 
 
-def test_object_search_by_checksum(api):
+def test_object_search_by_checksum(client):
     content = b"searchable"
     chk = _checksum(content)
-    _upload(api, content=content)
-    resp = api.get("/object/", params={"checksum": chk})
+    _upload(client, content=content)
+    resp = client.get("/object/", params={"checksum": chk})
     assert resp.status_code == 200
     rows = resp.json()
     assert len(rows) == 1
     assert rows[0]["checksum"] == chk
 
 
-def test_put_completed(api):
-    resp1, _ = _upload(api)
+def test_put_completed(client):
+    resp1, _ = _upload(client)
     obj_url = resp1.json()["upload"]["finished"]
-    resp = api.put(obj_url, {"completed": True})
+    resp = client.put(obj_url, json={"completed": True})
     assert resp.status_code == 200
     assert resp.json()["completed"] is True
-    assert api.get(obj_url).json()["completed"] is True
+    assert client.get(obj_url).json()["completed"] is True
 
 
-def test_put_deleted(api):
-    resp1, _ = _upload(api)
+def test_put_deleted(client):
+    resp1, _ = _upload(client)
     obj_url = resp1.json()["upload"]["finished"]
-    resp = api.put(obj_url, {"deleted": True})
+    resp = client.put(obj_url, json={"deleted": True})
     assert resp.status_code == 200
     assert resp.json()["deleted"] is True
 
 
-def test_put_both_true_rejected(api):
-    resp1, _ = _upload(api)
+def test_put_both_true_rejected(client):
+    resp1, _ = _upload(client)
     obj_url = resp1.json()["upload"]["finished"]
-    resp = api.put(obj_url, {"completed": True, "deleted": True})
+    resp = client.put(obj_url, json={"completed": True, "deleted": True})
     assert resp.status_code >= 400
 
 
-def test_object_download_presigned(api):
+def test_object_download_presigned(client):
     content = b"download body"
     chk = _checksum(content)
-    resp1, _ = _upload(api, content=content)
+    resp1, _ = _upload(client, content=content)
     obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
-    resp = api.get(f"/object/{obj_uuid}/download")
+    resp = client.get(f"/object/{obj_uuid}/download")
     assert resp.status_code == 200
     assert resp.json()["presigned"] == f"{TEST_S3}bucket1/{chk}-hello.txt"
+
+
+# --------------------------------------------------------------------------
+# FastAPI surface
+# --------------------------------------------------------------------------
+
+def test_openapi_available(client):
+    resp = client.get("/openapi.json")
+    assert resp.status_code == 200
+    paths = resp.json()["paths"]
+    assert set(paths) >= {
+        "/upload/", "/file/", "/file/{fil_uuid}/",
+        "/object/", "/object/{obj_uuid}/", "/object/{obj_uuid}/download",
+    }

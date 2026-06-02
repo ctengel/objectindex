@@ -241,22 +241,19 @@ OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideal
 
 ## Testing
 
-The API has a black-box contract test suite under `tests/`. The same tests run
-against both the FastAPI app and a frozen copy of the legacy Flask app
-(`tests/oilegacy/`, skipped automatically unless `flask-restx` is installed), so
-they double as a drop-in-replacement check.
+The API has a black-box contract test suite under `tests/`. It drives the
+FastAPI app in-process via Starlette's `TestClient` (no server process) and pins
+the REST wire contract.
 
-The tests need a real PostgreSQL (the suite relies on JSONB, `bytea` and
-`LIKE`-escaping, which SQLite can't reproduce). Point `TEST_DATABASE_URL` at any
-database you can create/drop tables in — the suite recreates the two tables
-before every test:
+The tests still need a real PostgreSQL (the suite relies on JSONB, `bytea` and
+`LIKE`-escaping, which SQLite can't reproduce — `TestClient` only replaces the
+HTTP transport, not the database). Point `TEST_DATABASE_URL` at any database you
+can create/drop tables in — the suite recreates the two tables before every test:
 
 ```bash
 pip install -e '.[test]'
 TEST_DATABASE_URL=postgresql+psycopg2:///objidx_test python3 -m pytest tests/
 ```
-
-Use `-k fastapi` (or `-k flask`) to run a single implementation.
 
 ### Spinning up a throwaway PostgreSQL
 

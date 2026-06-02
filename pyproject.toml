@@ -25,9 +25,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# flask-restx/flask-sqlalchemy enable the optional legacy cross-check in
-# tests/oilegacy (skipped automatically when they are absent).
-test = ['pytest >= 7', 'flask-restx >= 1.0', 'flask-sqlalchemy >= 3.0']
+# httpx backs FastAPI's TestClient, which the contract suite runs in-process.
+test = ['pytest >= 7', 'httpx >= 0.27']
 
 [project.urls]
 repository = "https://github.com/ctengel/objectindex"
