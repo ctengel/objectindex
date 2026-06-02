@@ -1,0 +1,362 @@
+openapi: 3.0.3
+info:
+  title: Object Index API
+  version: '0.1'
+  description: API for storing info about Objects
+servers:
+- url: /
+tags:
+- name: upload
+  description: Upload operations
+- name: file
+  description: File operations
+- name: object
+  description: Object operations
+paths:
+  /file/:
+    get:
+      tags:
+      - file
+      summary: Search for a file
+      operationId: search_files
+      parameters:
+      - name: url
+        in: query
+        description: Source URL to search for
+        schema:
+          type: string
+      - name: extra
+        in: query
+        description: Tags in file extra JSON to look for
+        schema:
+          type: string
+      - name: X-Fields
+        in: header
+        description: An optional fields mask
+        schema:
+          type: string
+          format: mask
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/File'
+  /file/{fil_uuid}/:
+    get:
+      tags:
+      - file
+      summary: Get library media
+      operationId: get_file
+      parameters:
+      - name: fil_uuid
+        in: path
+        description: File UUID
+        required: true
+        schema:
+          type: string
+      - name: X-Fields
+        in: header
+        description: An optional fields mask
+        schema:
+          type: string
+          format: mask
+      responses:
+        '404':
+          description: File not found
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/File'
+  /object/:
+    get:
+      tags:
+      - object
+      summary: Search for a file
+      operationId: search_objects
+      parameters:
+      - name: checksum
+        in: query
+        description: Checksum to search for
+        schema:
+          type: string
+      - name: X-Fields
+        in: header
+        description: An optional fields mask
+        schema:
+          type: string
+          format: mask
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Object'
+  /object/{obj_uuid}/:
+    put:
+      tags:
+      - object
+      summary: Let us know an upload is completed
+      operationId: put_object
+      parameters:
+      - name: obj_uuid
+        in: path
+        description: Object UUID
+        required: true
+        schema:
+          type: string
+      - name: X-Fields
+        in: header
+        description: An optional fields mask
+        schema:
+          type: string
+          format: mask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Object'
+      responses:
+        '404':
+          description: Object not found
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Object'
+    get:
+      tags:
+      - object
+      summary: Get library media
+      operationId: get_object
+      parameters:
+      - name: obj_uuid
+        in: path
+        description: Object UUID
+        required: true
+        schema:
+          type: string
+      - name: X-Fields
+        in: header
+        description: An optional fields mask
+        schema:
+          type: string
+          format: mask
+      responses:
+        '404':
+          description: Object not found
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Object'
+  /object/{obj_uuid}/download:
+    get:
+      tags:
+      - object
+      summary: Get S3 download info for object
+      operationId: download_object
+      parameters:
+      - name: obj_uuid
+        in: path
+        description: Object UUID
+        required: true
+        schema:
+          type: string
+      - name: X-Fields
+        in: header
+        description: An optional fields mask
+        schema:
+          type: string
+          format: mask
+      responses:
+        '404':
+          description: Object not found
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/S3Link'
+  /upload/:
+    post:
+      tags:
+      - upload
+      summary: Upload or get info
+      operationId: submit_upload
+      parameters:
+      - name: X-Fields
+        in: header
+        description: An optional fields mask
+        schema:
+          type: string
+          format: mask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadSub'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResult'
+components:
+  schemas:
+    UploadSub:
+      required:
+      - bucket
+      - checksum
+      - obj_size
+      - url
+      properties:
+        mtime:
+          type: string
+          format: date-time
+        url:
+          type: string
+        direct:
+          type: boolean
+          default: true
+        extra_file:
+          type: object
+        extra_object:
+          type: object
+        filename:
+          type: string
+        ul_user:
+          type: string
+        ul_sw:
+          type: string
+        ul_host:
+          type: string
+        partial:
+          type: boolean
+          default: false
+        bucket:
+          type: string
+        obj_size:
+          type: integer
+        checksum:
+          type: string
+        mime:
+          type: string
+      type: object
+    UploadResult:
+      properties:
+        file:
+          $ref: '#/components/schemas/File'
+        exists:
+          type: boolean
+        upload:
+          $ref: '#/components/schemas/UploadLinks'
+        download:
+          type: string
+          readOnly: true
+      type: object
+    File:
+      properties:
+        mtime:
+          type: string
+          format: date-time
+        url:
+          type: string
+          readOnly: true
+        direct:
+          type: boolean
+        extra:
+          type: object
+        ul_user:
+          type: string
+        ul_sw:
+          type: string
+        ul_host:
+          type: string
+        partial:
+          type: boolean
+        file_object:
+          $ref: '#/components/schemas/Object'
+        uuid:
+          type: string
+          readOnly: true
+        ctime:
+          type: string
+          format: date-time
+          readOnly: true
+      type: object
+    Object:
+      properties:
+        ctime:
+          type: string
+          format: date-time
+          readOnly: true
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/BriefFile'
+        extra:
+          type: object
+        key:
+          type: string
+          readOnly: true
+        completed:
+          type: boolean
+        deleted:
+          type: boolean
+        bucket:
+          type: string
+          readOnly: true
+        obj_size:
+          type: integer
+          readOnly: true
+        checksum:
+          type: object
+          readOnly: true
+        mime:
+          type: string
+        uuid:
+          type: string
+          readOnly: true
+      type: object
+    BriefFile:
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+      type: object
+    UploadLinks:
+      properties:
+        finished:
+          type: string
+          readOnly: true
+        s3:
+          type: string
+          readOnly: true
+      type: object
+    S3Link:
+      properties:
+        presigned:
+          type: string
+      type: object
+  responses:
+    ParseError:
+      description: When a mask can't be parsed
+    MaskError:
+      description: When any error occurs on mask
