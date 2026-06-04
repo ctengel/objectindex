@@ -22,12 +22,12 @@ Consume S3 API(s) (from MinIO or the like) and expose a rich metadata store.
 `pip3 install https://github.com/ctengel/objectindex/archive/refs/heads/main.zip`
 
 There are then a few different ways to use this:
-- RESTful API (FastAPI): `uvicorn obj_idx.api:app --host=0.0.0.0` (configured via `OBJIDX_*` env vars, see below)
+- RESTful API (FastAPI): `uvicorn obj_idx.api:app --host=0.0.0.0 --port 29161` (configured via `OBJIDX_*` env vars, see below)
   - need simpler-objects running
   - need postgres running and setup
     - see `python3 -m obj_idx.db_create` (with the same `OBJIDX_*` env vars set)
   - interactive API docs at `/docs`
-- GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 5001 --host=0.0.0.0`
+- GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 29159 --host=0.0.0.0`
   - need GUI config file (see below)
 - CLI client: `obj-idx-client`
 
@@ -51,7 +51,7 @@ called out under "For API consumers" below.
   (`pip install -e .`) to pull them. (Flask itself is still a dependency — the
   GUI is still Flask.)
 - **Invocation changed (WSGI → ASGI).** Start the API with
-  `uvicorn obj_idx.api:app --host 0.0.0.0` (port 8000 by default). Update any
+  `uvicorn obj_idx.api:app --host 0.0.0.0 --port 29161`. Update any
   systemd unit / process manager that previously launched the Flask app.
 - **Configuration moved from a file to environment variables.** Earlier
   releases used a Flask `.cfg` Python file referenced by `OBJIDX_SETTINGS`; the
@@ -71,6 +71,7 @@ called out under "For API consumers" below.
   `OBJIDX_GUI_SETTINGS` pointing at a `.cfg` file (`OBJIDX_URL`, `OBJIDX_AUTH`).
 - **Interactive API docs** are now the OpenAPI UI at `/docs` (raw spec at
   `/openapi.json`); the old Flask‑RESTX Swagger page is gone.
+- **Default ports** Now 29161 (API) and 29159 (GUI)
 
 ### For API consumers
 
@@ -220,34 +221,7 @@ We need to periodically monitor and tune hardware:
 
 #### Object Storage install
 
-Install simpler objects
-
-#### systemd example
-
-`$ systemctl list-units | grep '/path/to/objectstore' | awk '{ print $1 }'`
-
-`/etc/systemd/system/minio.service`:
-
-```
-[Unit]
-Description=MinIO Object Storage Service
-After=network-online.target objectstoremountpoint.mount
-
-[Service]
-ExecStart=/home/minio/start.sh
-WorkingDirectory=/home/minio
-User=minio
-Group=minio
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```
-$ sudo systemctl start minio
-$ sudo systemctl status minio
-$ sudo systemctl enable minio
-```
+Install simpler objects (README there includes systemd and ansible instructions)
 
 ### Postgres
 
@@ -302,12 +276,12 @@ The API (FastAPI) is configured by environment variables, all prefixed
 
 ```
 OBJIDX_DATABASE_URL=postgresql+psycopg2:///objidx
-OBJIDX_S3=http://user:pass@localhost:9000/
+OBJIDX_S3=http://localhost:29164/
 OBJIDX_BUCKETS=bucket1
 ```
 
 - `OBJIDX_DATABASE_URL` is the SQLAlchemy database URL (include the driver).
-- `OBJIDX_S3` is a special URL for S3.
+- `OBJIDX_S3` is the URL for Simpler Objects Locator.
 - `OBJIDX_BUCKETS` is a comma-separated list of buckets that may be used
   (e.g. `bucket1,bucket2`).
 
@@ -318,7 +292,7 @@ the API no longer uses it (the GUI still does — see below).
 
 ```
 DEBUG = True
-OBJIDX_URL="http://127.0.0.1:5000/"  # change if running on a different host
+OBJIDX_URL="http://127.0.0.1:29161/"  # change if running on a different host
 OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideally pass thru in fut
 ```
 
