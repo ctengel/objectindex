@@ -5,92 +5,21 @@ Currently it relies on ObjectIndex for all info it needs on S3, other than bucke
 
 import socket
 import pathlib
-import hashlib
 import mimetypes
 import datetime
 import warnings
-import base64
 from urllib.parse import urlsplit, urlparse
 import os
 import tempfile
-import requests
+from simpler_objects.client import (
+    simple_upload,
+    simple_download,
+    file_checksum as checksum,
+    ClientError,
+)
 from . import clilib
 
-SW_STRING = 'OIC-0.2'
-BLOCK_SIZE = 16777216
-
-def parse_digest_header(header_value: str) -> bytes:
-    """Read SHA256 binary value from HTTP Content-Digest value"""
-    if not header_value:
-        return None
-    for pair in header_value.split(','):
-        algo, equals, digest = pair.partition('=')
-        assert equals == '='
-        if not algo == 'sha-256':
-            continue
-        return base64.b64decode(digest.strip(':'))
-    return None
-
-def encode_digest_header(checksum_val: bytes) -> str:
-    """Encode SHA256 digest into an HTTP Content-Digest value"""
-    return f"sha-256=:{base64.b64encode(checksum_val).decode()}:"
-
-def simple_upload(filename, url, file_mime, checksum_val=None):  #, fh=False):
-    """Simpler Objects upload"""
-    headers = {'Content-Type': file_mime}
-    if checksum_val:
-        headers['Content-Digest'] = encode_digest_header(checksum_val)
-    #if fh:
-    #    response = requests.put(url, data=filename, headers=headers)
-    #    response.raise_for_status()
-    #    return
-    with open(filename, 'rb') as f:
-        response = requests.put(url, data=f, headers=headers)
-        response.raise_for_status()
-
-def read_content_disposition(header_value: str) -> str:
-    """Read filename from HTTP Content-Disposition"""
-    # TODO use pyrfc6266
-    if not header_value:
-        return None
-    if "filename=" not in header_value:
-        return None
-    filename_start = header_value.find("filename=") + len("filename=")
-    filename = header_value[filename_start:].strip('";')
-    return filename
-
-def read_http_datetime(header_value: str) -> datetime.datetime:
-    """Given an HTTP date (like for Last-Modified), return Python object"""
-    # TODO use dateutil
-    if not header_value:
-        return None
-    return datetime.datetime.strptime(header_value, '%a, %d %b %Y %X %Z')
-
-def simple_download(url, filename):
-    """Simpler Objects download"""
-    result = requests.get(url, stream=True, headers={'Want-Content-Digest': 'sha-256=9'})
-    result.raise_for_status()
-    digest = parse_digest_header(result.headers.get('Content-Digest'))
-    mime = result.headers.get('Content-Type')
-    sugg_fname = read_content_disposition(result.headers.get('Content-Disposition'))
-    mtime = read_http_datetime(result.headers.get('Last-Modified'))
-    with open(filename, 'wb') as f:
-        for chunk in result.iter_content(chunk_size=BLOCK_SIZE):
-            if chunk: # Filter out keep-alive new chunks
-                f.write(chunk)
-    return digest, mime, sugg_fname, mtime
-
-
-def checksum(file_path: pathlib.Path) -> bytes:
-    """Get SHA256 checksum of a given path"""
-    check = hashlib.sha256()
-    with open(file_path, "rb") as file_obj:
-        while True:
-            data = file_obj.read(BLOCK_SIZE)
-            if len(data) == 0:
-                break
-            check.update(data)
-    return check.digest()
+SW_STRING = 'OIC-0.3.1'
 
 def get_mime(file_path: pathlib.Path) -> str:
     """Determine MIME type of a given path"""
@@ -246,7 +175,7 @@ def upload_remote(url: str,
     with tempfile.NamedTemporaryFile() as temp:
         try:
             digest, mime, new_keyhint, new_mtime = simple_download(url, temp.name)
-        except requests.exceptions.HTTPError as excp:
+        except ClientError as excp:
             if catch_dl_err:
                 warnings.warn(str(excp))
                 return None
@@ -309,7 +238,7 @@ def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False) -> li
         tgt_filename = s3_url.rsplit('/', 1)[-1]
         dl_cksum, _, _, _ = simple_download(s3_url, tgt_filename)
         if dl_cksum:
-            assert file.object['checksum'] == dl_cksum
+            assert file.object['checksum'] == dl_cksum.hex()
         assert file.object['checksum'] == checksum(tgt_filename).hex()
     return files
 
