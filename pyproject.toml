@@ -1,6 +1,6 @@
 [project]
 name = "objectindex"
-version = "0.2.5"
+version = "0.3.0"
 description = "Object Index allows you to index your objexts in S3"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -16,7 +16,7 @@ classifiers = [
 dependencies = [
   'fastapi >= 0.110',
   'uvicorn[standard] >= 0.27',
-  'pydantic-settings >= 2.0',
+  'pydantic-settings >= 2.2',
   'sqlmodel >= 0.0.38',
   'flask >= 2.1',
   'requests >= 2.27',

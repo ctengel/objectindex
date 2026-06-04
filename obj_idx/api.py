@@ -16,7 +16,6 @@ from .schemas import (
     ObjectRead,
     ObjectUpdate,
     S3Link,
-    UploadErrorResponse,
     UploadRequest,
     UploadResult,
 )
@@ -44,7 +43,7 @@ def escape_like_prefix(value):
 
 app = FastAPI(
     title="Object Index API",
-    version="0.1",
+    version="0.3.0",
     description="API for storing info about Objects",
 )
 
@@ -56,28 +55,36 @@ def get_dl_url(objobj: Object) -> str:
 
 @app.post("/upload/", status_code=201, response_model=UploadResult,
           responses={
-              400: {"model": UploadErrorResponse,
-                    "description": "Unknown bucket or object size mismatch"},
+              400: {"model": DetailResponse,
+                    "description": "Invalid checksum"},
               409: {"model": ConflictResponse,
-                    "description": "An upload of an object with the same "
-                                   "checksum may currently be in progress"},
+                    "description": "Object size mismatch, an upload of an object "
+                                   "with the same checksum may currently be in "
+                                   "progress, the object was previously deleted, "
+                                   "or the existing file's direct/partial status "
+                                   "does not match"},
+              404: {"model": DetailResponse,
+                    "description": "Unknown bucket"}
           })
 def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     """Upload or get info"""
+    # TODO consider raise HTTPException instead of JSONResponse
     exists = False
-    checksum = bytes.fromhex(payload.checksum)
+    try:
+        checksum = bytes.fromhex(payload.checksum)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="checksum must be hex")
     if payload.bucket not in get_settings().buckets:
-        return JSONResponse(status_code=400,
-                            content={"message": "Unknown bucket",
-                                     "bucket": payload.bucket})
+        raise HTTPException(status_code=404, detail="Unknown bucket")
     my_obj = session.exec(
         select(Object).where(Object.checksum == checksum)
     ).one_or_none()
     if my_obj:
         exists = True
         if my_obj.obj_size != payload.obj_size:
-            return JSONResponse(status_code=400,
-                                content={"message": "Object size mismatch"})
+            return JSONResponse(status_code=409,
+                                content={"message": "Object size mismatch",
+                                         "object_uuid": str(my_obj.uuid)})
         if not my_obj.completed:
             # Upload was initiated before but not finished
             if not my_obj.deleted:
@@ -91,13 +98,17 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
             # The failed upload has been cleared/deleted so allow restart
             my_obj.deleted = False
             exists = False
+        if my_obj.deleted:
+            # Object was intentionally deleted; 409 here, 410 for GET data
+            return JSONResponse(status_code=409, content={"message": "object previously deleted",
+                                                          "object_uuid": str(my_obj.uuid)})
         if payload.mime and not my_obj.mime:
             my_obj.mime = payload.mime
         if payload.extra_object and not my_obj.extra:
             my_obj.extra = payload.extra_object
     else:
         my_obj = Object(bucket=payload.bucket,
-                        key=f"{checksum.hex()}-{sanitize_filename(payload.filename or '')}",
+                        key=f"{checksum.hex()}-{sanitize_filename(payload.filename)}",
                         obj_size=payload.obj_size,
                         checksum=checksum,
                         mime=payload.mime,
@@ -108,6 +119,11 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
         select(File).where(File.url == payload.url, File.obj_uuid == my_obj.uuid)
     ).one_or_none()
     if my_file:
+        # NOTE: We do not assert "exists" here to allow retries of cleared failed uploads
+        if payload.direct != my_file.direct or payload.partial != my_file.partial:
+            return JSONResponse(status_code=409, content={"message": "partial/direct status does not match existing file",
+                                                          "file_uuid": str(my_file.uuid),
+                                                          "object_uuid": str(my_obj.uuid)})
         if payload.mtime and not my_file.mtime:
             my_file.mtime = payload.mtime
         if payload.extra_file and not my_file.extra:
@@ -145,6 +161,9 @@ def search_files(url: Optional[str] = None,
     if url and extra:
         raise HTTPException(status_code=400,
                             detail="Cannot search by both url and extra")
+    if not url and not extra:
+        raise HTTPException(status_code=400,
+                            detail="Must search by url or extra")
     if extra:
         key, sep, value = extra.partition("=")
         if sep != "=":
@@ -169,10 +188,15 @@ def get_file(fil_uuid: uuid.UUID, session: Session = Depends(get_session)):
     return my_file
 
 
-@app.get("/object/", response_model=list[ObjectRead])
+@app.get("/object/", response_model=list[ObjectRead],
+         responses={400: {"model": DetailResponse,
+                          "description": "Invalid checksum"}})
 def search_objects(checksum: str, session: Session = Depends(get_session)):
     """Search for objects by checksum"""
-    checksum_bytes = bytes.fromhex(checksum)
+    try:
+        checksum_bytes = bytes.fromhex(checksum)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="checksum must be hex")
     return session.exec(
         select(Object).where(Object.checksum == checksum_bytes)
     ).all()
@@ -222,4 +246,8 @@ def download_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)
     my_obj = session.get(Object, obj_uuid)
     if my_obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
+    if my_obj.deleted:
+        raise HTTPException(status_code=410, detail="Object deleted")
+    if not my_obj.completed:
+        raise HTTPException(status_code=503, detail="Object upload in progress")
     return {"presigned": get_dl_url(my_obj)}

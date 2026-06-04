@@ -137,10 +137,18 @@ def test_reupload_after_delete(client):
     assert "upload" in body
 
 
-def test_unknown_bucket_400_has_bucket(client):
+def test_unknown_bucket_404(client):
     resp, _ = _upload(client, bucket="nope")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Unknown bucket"
+
+
+def test_upload_invalid_checksum_400(client):
+    payload = make_payload()
+    payload["checksum"] = "not-hex"
+    resp = client.post("/upload/", json=payload)
     assert resp.status_code == 400
-    assert resp.json()["bucket"] == "nope"
+    assert resp.json()["detail"] == "checksum must be hex"
 
 
 def test_upload_missing_required_field_422(client):
@@ -151,6 +159,16 @@ def test_upload_missing_required_field_422(client):
     resp = client.post("/upload/", json=payload)
     assert resp.status_code == 422
     assert any(err["loc"][-1] == "checksum" for err in resp.json()["detail"])
+
+
+def test_upload_missing_filename_422(client):
+    # filename is required: a missing/null filename would otherwise mint a
+    # degenerate object key of "{sha256}-" (no name), so reject it loudly.
+    payload = make_payload()
+    del payload["filename"]
+    resp = client.post("/upload/", json=payload)
+    assert resp.status_code == 422
+    assert any(err["loc"][-1] == "filename" for err in resp.json()["detail"])
 
 
 # --------------------------------------------------------------------------
@@ -231,6 +249,19 @@ def test_file_search_by_extra(client):
     assert client.get("/file/", params={"extra": "colour=red"}).json() == []
 
 
+def test_file_search_no_criteria_400(client):
+    # Neither url nor extra is a malformed query (the Flask version 500'd on it);
+    # it must fail loudly rather than silently returning an empty 200.
+    resp = client.get("/file/")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Must search by url or extra"
+
+
+def test_file_search_both_criteria_400(client):
+    resp = client.get("/file/", params={"url": "x", "extra": "k=v"})
+    assert resp.status_code == 400
+
+
 # --------------------------------------------------------------------------
 # Object endpoints
 # --------------------------------------------------------------------------
@@ -302,9 +333,26 @@ def test_object_download_presigned(client):
     chk = _checksum(content)
     resp1, _ = _upload(client, content=content)
     obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
+    _complete(client, resp1.json()["upload"]["finished"])
     resp = client.get(f"/object/{obj_uuid}/download")
     assert resp.status_code == 200
     assert resp.json()["presigned"] == f"{TEST_S3}bucket1/{chk}-hello.txt"
+
+
+def test_object_download_incomplete_503(client):
+    # Upload initiated but not completed -> upload may still be in progress.
+    resp1, _ = _upload(client, content=b"in progress")
+    obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
+    resp = client.get(f"/object/{obj_uuid}/download")
+    assert resp.status_code == 503
+
+
+def test_object_download_deleted_410(client):
+    resp1, _ = _upload(client, content=b"to be deleted")
+    obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
+    client.put(resp1.json()["upload"]["finished"], json={"deleted": True})
+    resp = client.get(f"/object/{obj_uuid}/download")
+    assert resp.status_code == 410
 
 
 # --------------------------------------------------------------------------

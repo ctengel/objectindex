@@ -6,12 +6,14 @@ Environment variables (all prefixed ``OBJIDX_``):
 |----------------------|--------------------|--------------------------------------|
 | ``OBJIDX_DATABASE_URL`` | ``database_url`` | ``postgresql+psycopg2:///objidx``    |
 | ``OBJIDX_S3``        | ``s3``             | ``http://user:pass@localhost:9000/`` |
-| ``OBJIDX_BUCKETS``   | ``buckets``        | ``["bucket1"]`` (JSON list)          |
+| ``OBJIDX_BUCKETS``   | ``buckets``        | ``bucket1,bucket2`` (comma-separated)|
 """
 
 from functools import lru_cache
+from typing import Annotated
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -25,7 +27,17 @@ class Settings(BaseSettings):
 
     database_url: str
     s3: str
-    buckets: list[str]
+    # NoDecode keeps pydantic-settings from JSON-decoding the raw env value so
+    # the validator below can split a plain comma-separated list.
+    buckets: Annotated[list[str], NoDecode]
+
+    @field_validator("buckets", mode="before")
+    @classmethod
+    def _split_buckets(cls, v):
+        """Parse ``OBJIDX_BUCKETS=bucket1,bucket2`` into a list."""
+        if isinstance(v, str):
+            return [b.strip() for b in v.split(",") if b.strip()]
+        return v
 
 
 @lru_cache

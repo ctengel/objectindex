@@ -85,13 +85,6 @@ CREATE INDEX buckey ON public.object USING btree (bucket, key);
 
 
 --
--- Name: ix_file_extra_ytdl_id; Type: INDEX; Schema: public; Owner: chris
---
-
-CREATE INDEX ix_file_extra_ytdl_id ON public.file USING btree (((extra ->> 'ytdl-id'::text)));
-
-
---
 -- Name: ix_file_obj_uuid; Type: INDEX; Schema: public; Owner: chris
 --
 

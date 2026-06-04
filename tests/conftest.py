@@ -22,7 +22,7 @@ os.environ["OBJIDX_DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+psycopg2://claude@/objidx_test?host=/tmp"
 )
 os.environ["OBJIDX_S3"] = TEST_S3
-os.environ["OBJIDX_BUCKETS"] = '["bucket1"]'
+os.environ["OBJIDX_BUCKETS"] = "bucket1"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
@@ -61,7 +61,6 @@ CREATE TABLE file (
     ul_host character varying(64)
 );
 CREATE INDEX buckey ON object USING btree (bucket, key);
-CREATE INDEX ix_file_extra_ytdl_id ON file USING btree ((extra ->> 'ytdl-id'));
 CREATE INDEX ix_file_obj_uuid ON file USING btree (obj_uuid);
 CREATE INDEX ix_file_url ON file USING btree (url);
 CREATE INDEX ix_object_checksum ON object USING btree (checksum);

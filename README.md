@@ -32,6 +32,88 @@ There are then a few different ways to use this:
 - CLI client: `obj-idx-client`
 
 
+## Upgrading to 0.3.0 (Flask → FastAPI)
+
+The flagship change in 0.3.0 is that the **REST API is now FastAPI** (served by
+uvicorn) instead of Flask‑RESTX. The **database schema is 100% unchanged** and
+the **GUI and CLI are unchanged**. Most of the REST contract is identical; the
+differences are limited to error responses and a few stricter validations,
+called out under "For API consumers" below.
+
+### For operators
+
+- **No database migration.** The Postgres schema (tables, columns, indexes, the
+  `bytea` `checksum`) is byte‑for‑byte identical. Point 0.3.0 at your existing
+  database as‑is — no `db_create`, no `ALTER` required.
+- **New/changed dependencies.** `flask-restx`, `flask-sqlalchemy` and the
+  `sqlalchemy < 2` pin are gone; the API now uses `fastapi`, `uvicorn`,
+  `pydantic-settings`, `sqlmodel` and `sqlalchemy 2.0`. Reinstall the package
+  (`pip install -e .`) to pull them. (Flask itself is still a dependency — the
+  GUI is still Flask.)
+- **Invocation changed (WSGI → ASGI).** Start the API with
+  `uvicorn obj_idx.api:app --host 0.0.0.0` (port 8000 by default). Update any
+  systemd unit / process manager that previously launched the Flask app.
+- **Configuration moved from a file to environment variables.** Earlier
+  releases used a Flask `.cfg` Python file referenced by `OBJIDX_SETTINGS`; the
+  API no longer reads it. Configuration is now environment variables (or a
+  `.env` file), all prefixed `OBJIDX_`:
+
+  | Old `.cfg` key | New env var | Notes |
+  |----------------|-------------|-------|
+  | `SQLALCHEMY_DATABASE_URI` | `OBJIDX_DATABASE_URL` | include the driver, e.g. `postgresql+psycopg2:///objidx` |
+  | `OBJIDX_S3` | `OBJIDX_S3` | unchanged meaning |
+  | `OBJIDX_BUCKETS` | `OBJIDX_BUCKETS` | **now comma‑separated** (`bucket1,bucket2`), not a Python/JSON list |
+
+  The old Flask‑only keys `DEBUG` and `SQLALCHEMY_TRACK_MODIFICATIONS` are
+  obsolete and can be dropped. See `sample.env` and the
+  [API config section](#api) below.
+- **The GUI is unchanged.** It is still Flask and still configured via
+  `OBJIDX_GUI_SETTINGS` pointing at a `.cfg` file (`OBJIDX_URL`, `OBJIDX_AUTH`).
+- **Interactive API docs** are now the OpenAPI UI at `/docs` (raw spec at
+  `/openapi.json`); the old Flask‑RESTX Swagger page is gone.
+
+### For API consumers
+
+The wire contract is **mostly identical** — same routes and methods, same
+request bodies, same success response shapes (`checksum` is still a lowercase
+hex string; a `File` embeds the full `file_object`, an `Object` embeds brief
+`files` of `{uuid, url}`), and `POST /upload/` still returns **201**. The upload
+state machine and SHA‑256 dedup are unchanged.
+
+The differences are in **error responses** (mostly turning previous `500`
+crashes into proper `4xx`) and a couple of **stricter validations**:
+
+| Endpoint / case | 0.2.x (Flask) | 0.3.0 (FastAPI) |
+|---|---|---|
+| Unknown bucket on `POST /upload/` | `400`, body `{message, bucket}` (recently `500`) | **`404`**, body `{detail}` |
+| Same checksum, different `obj_size` | `500` | **`409`** `{message, object_uuid}` |
+| Reupload of a permanently‑deleted object | `500` | **`409`** `{message, object_uuid}` |
+| Existing file, different `direct`/`partial` | `500` | **`409`** `{message, file_uuid, object_uuid}` |
+| Upload may be in progress | `409` `{message, object_uuid}` | **`409`** (unchanged) |
+| Non‑hex `checksum` (`/upload/`, `/object/`) | `500` | **`400`** `{detail}` |
+| Missing required body field | `500` | **`422`** |
+| Missing `filename` on `/upload/` | `500` | **`422`** (now explicitly required) |
+| `GET /file/` with neither `url` nor `extra` | `500` | **`400`** `{detail}` |
+| Malformed UUID in a path | `500` | **`422`** |
+| `GET /object/{uuid}/download`, object deleted | `200` (returned a URL) | **`410`** |
+| `GET /object/{uuid}/download`, upload not finished | `200` (returned a URL) | **`503`** |
+| `PUT /object/{uuid}/` with both `completed` + `deleted` | `500` | **`400`** `{detail}` |
+
+Notes for client authors:
+
+- **Error body shape.** Validation and most errors use FastAPI's standard
+  `{"detail": ...}`. The `POST /upload/` conflict (`409`) responses keep the
+  historical flat shape `{"message", "object_uuid"}` (plus `file_uuid` for the
+  direct/partial case), so existing clients that read `object_uuid` on a 409
+  keep working.
+- **Behavioral changes most likely to bite:** if your client treats unknown
+  bucket as `400` or reads the `bucket` field, switch to `404` / `detail`; and
+  if it assumes `…/download` always returns a URL, handle `410` (deleted) and
+  `503` (in progress).
+- **Everything else** simply converts a former `500` into a precise `4xx`/`422`,
+  so a well‑behaved client that never triggered those crashes is unaffected.
+
+
 ## Interim infrastructure
 
 Hardware and such:
@@ -188,7 +270,7 @@ Note also that modifying `/var/lib/pgsql/data/pg_hba.conf` to include `scram-sha
 
 Following steps to be run as user who will run the API.
 ```
-OBJIDX_DATABASE_URL=postgresql+psycopg2:///DB OBJIDX_S3=... OBJIDX_BUCKETS='["bucket1"]' python3 -m obj_idx.db_create
+OBJIDX_DATABASE_URL=postgresql+psycopg2:///DB OBJIDX_S3=... OBJIDX_BUCKETS=bucket1 python3 -m obj_idx.db_create
 pg_dump --schema-only DB > schema.sql
 ```
 
@@ -221,12 +303,13 @@ The API (FastAPI) is configured by environment variables, all prefixed
 ```
 OBJIDX_DATABASE_URL=postgresql+psycopg2:///objidx
 OBJIDX_S3=http://user:pass@localhost:9000/
-OBJIDX_BUCKETS=["bucket1"]
+OBJIDX_BUCKETS=bucket1
 ```
 
 - `OBJIDX_DATABASE_URL` is the SQLAlchemy database URL (include the driver).
 - `OBJIDX_S3` is a special URL for S3.
-- `OBJIDX_BUCKETS` is a JSON list of buckets that may be used.
+- `OBJIDX_BUCKETS` is a comma-separated list of buckets that may be used
+  (e.g. `bucket1,bucket2`).
 
 Previous releases used a Flask `.cfg` file referenced by `OBJIDX_SETTINGS`;
 the API no longer uses it (the GUI still does — see below).
@@ -297,7 +380,29 @@ Finally, once an object is in normal state, the object may be noted as permenant
 
 ### slow json lookups
 
-The expression index on `extra->>'ytdl-id'` is now built into the models
-(`ix_file_extra_ytdl_id`), so a fresh `db_create` includes it. Operators of a
-pre-existing database can add it without recreating tables by running
-`scripts/schema-79.sql`.
+`GET /file/?extra=ytdl-id=...` does a JSONB lookup on `extra->>'ytdl-id'`, which
+is **not** indexed by default — `db_create` deliberately omits it, because the
+expression index only pays off for deployments dominated by `ytdl-id` files and
+is wasted space otherwise.
+
+If many of your files carry a `ytdl-id`, an operator can add the index at any
+time (initial deployment or later, on a live table). The simple form is in
+`scripts/schema-79.sql`:
+
+```
+psql -d objidx -f scripts/schema-79.sql
+```
+
+If you also store a significant number of *non*-ytdl files, prefer a **partial**
+index so it only covers rows that actually have a `ytdl-id` — smaller and
+cheaper to maintain. Equality lookups (`extra->>'ytdl-id' = '...'`) imply
+`NOT NULL`, so the planner still uses it:
+
+```sql
+CREATE INDEX CONCURRENTLY ix_file_extra_ytdl_id
+    ON file ((extra ->> 'ytdl-id'))
+    WHERE (extra ->> 'ytdl-id') IS NOT NULL;
+```
+
+(`CONCURRENTLY` avoids blocking writes while the index builds on a live table;
+it cannot run inside a transaction block.)

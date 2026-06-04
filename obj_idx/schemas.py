@@ -96,7 +96,7 @@ class UploadRequest(BaseModel):
     direct: bool = True
     partial: bool = False
     mtime: Optional[datetime.datetime] = None
-    filename: Optional[str] = None
+    filename: str
     mime: Optional[str] = None
     ul_user: Optional[str] = None
     ul_sw: Optional[str] = None
@@ -118,17 +118,12 @@ class DetailResponse(BaseModel):
     detail: str
 
 
-class UploadErrorResponse(BaseModel):
-    """400 from ``POST /upload/`` — unknown bucket (includes ``bucket``) or
-    object size mismatch (``message`` only)."""
-
-    message: str
-    bucket: Optional[str] = None
-
-
 class ConflictResponse(BaseModel):
-    """409 from ``POST /upload/`` when an upload of the same checksum may be in
-    progress; carries the existing ``object_uuid``."""
+    """409 from ``POST /upload/`` — size mismatch, an upload of the same checksum
+    may be in progress, the object was previously deleted, or an existing file's
+    direct/partial status does not match. Carries the existing ``object_uuid``
+    (and ``file_uuid`` for the direct/partial-mismatch case)."""
 
     message: str
     object_uuid: str
+    file_uuid: Optional[str] = None
