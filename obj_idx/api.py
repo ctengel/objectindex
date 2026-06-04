@@ -69,6 +69,7 @@ def get_dl_url(objobj: Object) -> str:
 def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     """Upload or get info"""
     # TODO consider raise HTTPException instead of JSONResponse
+    #      (currently differs to return object ID on 409)
     exists = False
     try:
         checksum = bytes.fromhex(payload.checksum)
