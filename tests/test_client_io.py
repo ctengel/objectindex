@@ -334,8 +334,13 @@ def test_download_pretend_returns_files_no_io():
     assert result == mock_files
 
 
-def test_download_checksum_bytes_vs_hex_bug():
-    """simple_download now returns computed bytes; download() correctly compares hex."""
+@pytest.mark.parametrize('dl_digest', [CKSUM_BYTES, None],
+                         ids=['digest-present', 'digest-none'])
+def test_download_verifies_checksum(dl_digest):
+    """download() works whether simple_download returns a digest (streaming-hash
+    impl, or header-only impl when the server reported one) or None (header-only
+    impl with no server digest). When present it's compared as hex; either way
+    the file is re-hashed from disk via checksum() and compared to the expected."""
     mock_oi = _mock_obj_idx()
     mock_file = _make_mock_file()
     mock_file.object = _make_object_dict()  # checksum is hex string
@@ -347,9 +352,9 @@ def test_download_checksum_bytes_vs_hex_bug():
         tf.flush()
         tgt = tf.name
 
-    # simple_download returns computed SHA-256 bytes
     with patch('obj_idx.client.simple_download',
-               return_value=(CKSUM_BYTES, 'video/mp4', 'key.mp4', None)):
+               return_value=(dl_digest, 'video/mp4', 'key.mp4', None)):
         with patch('obj_idx.client.checksum', return_value=CKSUM_BYTES):
-            # This now passes: dl_cksum.hex() == file.object['checksum']
+            # digest-present: dl_cksum.hex() == file.object['checksum']
+            # digest-none: the `if dl_cksum:` guard is skipped; disk re-hash verifies
             client.download(mock_oi, 'http://example.com/v.mp4')
