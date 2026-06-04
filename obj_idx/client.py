@@ -15,10 +15,6 @@ from simpler_objects.client import (
     simple_upload,
     simple_download,
     file_checksum as checksum,
-    parse_digest_header,
-    encode_digest_header,
-    read_content_disposition,
-    read_http_datetime,
     ClientError,
 )
 from . import clilib

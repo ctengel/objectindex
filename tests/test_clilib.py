@@ -1,7 +1,7 @@
 """Tests for obj_idx/clilib.py"""
 
 import uuid
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch
 import pytest
 import requests
 
@@ -42,7 +42,7 @@ def _make_upload_response(exists=False):
     if exists:
         return {
             'exists': True,
-            'download': f'http://s3.test/bucket1/existing-key',
+            'download': 'http://s3.test/bucket1/existing-key',
             'file': _make_file_dict(),
         }
     return {

@@ -2,11 +2,9 @@
 
 import datetime
 import hashlib
-import pathlib
 import socket
 import tempfile
-import warnings
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
@@ -350,7 +348,6 @@ def test_download_verifies_checksum(dl_digest):
     with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tf:
         tf.write(CONTENT)
         tf.flush()
-        tgt = tf.name
 
     with patch('obj_idx.client.simple_download',
                return_value=(dl_digest, 'video/mp4', 'key.mp4', None)):
