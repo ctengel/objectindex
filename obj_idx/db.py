@@ -34,7 +34,8 @@ class Object(SQLModel, table=True):
         default=None, sa_column=Column(LargeBinary(32), index=True)
     )
     ctime: datetime.datetime = Field(
-        default_factory=datetime.datetime.utcnow, nullable=False
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
+        nullable=False,
     )
     mime: Optional[str] = Field(default=None, max_length=255)
     completed: bool = Field(default=False, nullable=False)
@@ -60,7 +61,8 @@ class File(SQLModel, table=True):
         sa_column=Column(UUID(as_uuid=True), ForeignKey("object.uuid"), index=True),
     )
     ctime: datetime.datetime = Field(
-        default_factory=datetime.datetime.utcnow, nullable=False
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
+        nullable=False,
     )
     mtime: Optional[datetime.datetime] = Field(default=None)
     url: str = Field(max_length=2047, index=True)

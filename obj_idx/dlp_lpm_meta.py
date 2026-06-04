@@ -93,8 +93,11 @@ class DLPMetaData:
             person = self.data.get('creator')
         if self.partial:
             assert person
-            # TODO don't use this deprecated thing
-            starttime = datetime.datetime.utcfromtimestamp(self.data['timestamp']).isoformat()
+            starttime = (
+                datetime.datetime.fromtimestamp(self.data['timestamp'], datetime.timezone.utc)
+                .replace(tzinfo=None)
+                .isoformat()
+            )
             media = f'live-{person}-{starttime}-{self.data.get("id")}'
         else:
             if person:
