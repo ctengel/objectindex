@@ -13,6 +13,7 @@ import requests
 
 from obj_idx import client
 from obj_idx.clilib import File, ObjectIndex
+from simpler_objects.client import ClientError
 
 OBJ_UUID = 'aaaaaaaa-0000-0000-0000-000000000001'
 FILE_UUID = 'bbbbbbbb-0000-0000-0000-000000000002'
@@ -309,11 +310,9 @@ def test_upload_remote_no_mtime_falls_back_to_now():
 
 def test_upload_remote_catch_dl_err_returns_none():
     mock_oi = _mock_obj_idx()
-    err_resp = Mock()
-    err_resp.status_code = 404
-    http_err = requests.exceptions.HTTPError(response=err_resp)
+    dl_err = ClientError('download failed', status=404)
     with patch('obj_idx.client.find_files', return_value=[]):
-        with patch('obj_idx.client.simple_download', side_effect=http_err):
+        with patch('obj_idx.client.simple_download', side_effect=dl_err):
             with pytest.warns(UserWarning):
                 result = client.upload_remote('http://example.com/v.mp4', mock_oi,
                                               'bucket1', check_exists=False,
@@ -335,12 +334,8 @@ def test_download_pretend_returns_files_no_io():
     assert result == mock_files
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="bug: download() compares hex checksum str to bytes dl_cksum "
-                          "(client.py line 312); fix: dl_cksum.hex()")
 def test_download_checksum_bytes_vs_hex_bug():
-    """When S3 returns Content-Digest, the assertion in download() fires because
-    file.object['checksum'] is a hex string but dl_cksum is bytes."""
+    """simple_download now returns computed bytes; download() correctly compares hex."""
     mock_oi = _mock_obj_idx()
     mock_file = _make_mock_file()
     mock_file.object = _make_object_dict()  # checksum is hex string
@@ -352,10 +347,9 @@ def test_download_checksum_bytes_vs_hex_bug():
         tf.flush()
         tgt = tf.name
 
-    # Simulate S3 returning Content-Digest (bytes from parse_digest_header)
+    # simple_download returns computed SHA-256 bytes
     with patch('obj_idx.client.simple_download',
                return_value=(CKSUM_BYTES, 'video/mp4', 'key.mp4', None)):
         with patch('obj_idx.client.checksum', return_value=CKSUM_BYTES):
-            # This will raise AssertionError inside download() because
-            # file.object['checksum'] (hex str) != dl_cksum (bytes)
+            # This now passes: dl_cksum.hex() == file.object['checksum']
             client.download(mock_oi, 'http://example.com/v.mp4')
