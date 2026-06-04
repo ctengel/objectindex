@@ -1,8 +1,6 @@
-"""Run this module to create DB tables"""
+"""Run this module to (re)create DB tables (drops and recreates all tables)."""
 
-from . import db, app
+from .db import SQLModel, engine
 
-with app.app.app_context():
-    db = db.db
-    db.drop_all()
-    db.create_all()
+SQLModel.metadata.drop_all(engine)
+SQLModel.metadata.create_all(engine)

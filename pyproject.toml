@@ -1,9 +1,9 @@
 [project]
 name = "objectindex"
-version = "0.2.5"
+version = "0.3.0"
 description = "Object Index allows you to index your objexts in S3"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{name = "ctengel"}]
@@ -14,13 +14,19 @@ classifiers = [
   "Natural Language :: English"
 ]
 dependencies = [
-  'flask-sqlalchemy >= 2.5, < 3',
-  'flask >= 2.1, < 3',
-  'flask-restx >= 1.0',
+  'fastapi >= 0.110',
+  'uvicorn[standard] >= 0.27',
+  'pydantic-settings >= 2.2',
+  'sqlmodel >= 0.0.38',
+  'flask >= 2.1',
   'requests >= 2.27',
   'psycopg2 >= 2.9',
-  'sqlalchemy >= 1.4, < 2'
+  'sqlalchemy >= 2.0'
 ]
+
+[project.optional-dependencies]
+# httpx backs FastAPI's TestClient, which the contract suite runs in-process.
+test = ['pytest >= 7', 'httpx >= 0.27']
 
 [project.urls]
 repository = "https://github.com/ctengel/objectindex"

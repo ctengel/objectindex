@@ -1,52 +1,95 @@
-"""Object Index Database Models"""
+"""Object Index database models (SQLModel).
+
+Table names, columns, indexes and the FK match the existing PostgreSQL schema
+(see ``schema.sql``) exactly, including the SHA-256 ``checksum`` stored as a
+32-byte ``bytea``. This is a drop-in replacement for the SQLAlchemy 2.0 models
+with no schema change.
+"""
 
 import datetime
 import uuid
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-import flask_sqlalchemy
-from . import app
+from typing import List, Optional
 
-app = app.app
-db = flask_sqlalchemy.SQLAlchemy(app)
+from sqlalchemy import BigInteger, Column, ForeignKey, Index, LargeBinary
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
-# https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-one
-# https://flask-sqlalchemy.palletsprojects.com/en/2.x/models/
-# db.Column(db.Text)
-# db.Column(db.DateTime, onupdate=datetime.datetime.now)
-
-class Object(db.Model):
-    """Object table"""
-    uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
-    bucket = db.Column(db.String(63), nullable=False)
-    key = db.Column(db.String(1023), nullable=False)
-    obj_size = db.Column(db.BigInteger, nullable=False) # NOTE Postgres doesn't support unsigned
-    checksum = db.Column(db.LargeBinary(32), index=True)
-    ctime = db.Column(db.DateTime, default=datetime.datetime.utcnow, nullable=False)
-    mime = db.Column(db.String(255))
-    completed = db.Column(db.Boolean, default=False, nullable=False)
-    deleted = db.Column(db.Boolean, default=False, nullable=False)
-    extra = db.Column(JSONB)
-    files = db.relationship('File', backref='file_object', lazy=True)
-    __table_args__ = (db.Index('buckey', "bucket", "key"), )
-
-class File(db.Model):
-    """File table"""
-    uuid = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
-    obj_uuid = db.Column(UUID(as_uuid=True),
-                         db.ForeignKey('object.uuid'),
-                         index=True,
-                         nullable=True)
-    ctime = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
-    mtime = db.Column(db.DateTime, nullable=True)
-    url = db.Column(db.String(2047), index=True, nullable=False)
-    direct = db.Column(db.Boolean, default=True, nullable=False)
-    partial = db.Column(db.Boolean, default=False, nullable=False)
-    extra = db.Column(JSONB)
-    ul_user = db.Column(db.String(15))
-    ul_sw = db.Column(db.String(15))
-    ul_host = db.Column(db.String(64))
+from .config import get_settings
 
 
+class Object(SQLModel, table=True):
+    """A unique stored object (deduplicated by checksum)."""
 
-#if __name__ == '__main__':
-#    db.create_all()
+    __tablename__ = "object"
+    __table_args__ = (Index("buckey", "bucket", "key"),)
+
+    uuid: uuid.UUID = Field(
+        sa_column=Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    )
+    bucket: str = Field(max_length=63)
+    key: str = Field(max_length=1023)
+    # NOTE Postgres doesn't support unsigned; large WORM files need BIGINT
+    obj_size: int = Field(sa_column=Column(BigInteger, nullable=False))
+    checksum: Optional[bytes] = Field(
+        default=None, sa_column=Column(LargeBinary(32), index=True)
+    )
+    ctime: datetime.datetime = Field(
+        default_factory=datetime.datetime.utcnow, nullable=False
+    )
+    mime: Optional[str] = Field(default=None, max_length=255)
+    completed: bool = Field(default=False, nullable=False)
+    deleted: bool = Field(default=False, nullable=False)
+    extra: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
+
+    files: List["File"] = Relationship(
+        back_populates="file_object",
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
+
+
+class File(SQLModel, table=True):
+    """A source URL that maps to an :class:`Object`."""
+
+    __tablename__ = "file"
+
+    uuid: uuid.UUID = Field(
+        sa_column=Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid1)
+    )
+    obj_uuid: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(UUID(as_uuid=True), ForeignKey("object.uuid"), index=True),
+    )
+    ctime: datetime.datetime = Field(
+        default_factory=datetime.datetime.utcnow, nullable=False
+    )
+    mtime: Optional[datetime.datetime] = Field(default=None)
+    url: str = Field(max_length=2047, index=True)
+    direct: bool = Field(default=True, nullable=False)
+    partial: bool = Field(default=False, nullable=False)
+    extra: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
+    ul_user: Optional[str] = Field(default=None, max_length=15)
+    ul_sw: Optional[str] = Field(default=None, max_length=15)
+    ul_host: Optional[str] = Field(default=None, max_length=64)
+
+    file_object: Optional[Object] = Relationship(
+        back_populates="files",
+        sa_relationship_kwargs={"lazy": "joined"},
+    )
+
+
+# Expression index speeding up GET /file/?extra=ytdl-id=... (see issue #79).
+# Operators of pre-existing databases can add it via scripts/schema-79.sql.
+#Index("ix_file_extra_ytdl_id", File.extra["ytdl-id"].astext)
+# NOTE - commented because not generally applicable and maybe wasteful
+
+# Engine / session factory, built from settings at import time.
+engine = create_engine(get_settings().database_url)
+
+
+def get_session():
+    """FastAPI dependency yielding a scoped Session."""
+    with Session(engine, expire_on_commit=False) as session:
+        yield session
+
+
+__all__ = ["Object", "File", "engine", "get_session", "select", "SQLModel"]

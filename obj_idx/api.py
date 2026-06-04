@@ -1,13 +1,31 @@
-"""Library Media Person RESTful API"""
+"""Object Index RESTful API (FastAPI)."""
 
 import uuid
-import flask_restx
-from . import app
-from . import db
+from typing import Optional
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from sqlmodel import Session
+
+from .config import get_settings
+from .db import File, Object, get_session, select
+from .schemas import (
+    ConflictResponse,
+    DetailResponse,
+    FileRead,
+    ObjectRead,
+    ObjectUpdate,
+    S3Link,
+    UploadRequest,
+    UploadResult,
+)
+
+NOT_FOUND = {404: {"model": DetailResponse}}
 
 ACCEPT_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 REPLACE_CHAR = "_"
 LIKE_ESCAPE_CHAR = "\\"
+
 
 def sanitize_filename(requested_name):
     """Santize a filename into a usable key"""
@@ -23,250 +41,214 @@ def escape_like_prefix(value):
                  .replace("_", LIKE_ESCAPE_CHAR + "_"))
 
 
-class Checksum(flask_restx.fields.Raw):
-    """Render binary field from DB as hex"""
-    def format(self, value):
-        return value.hex()
-
-app = app.app
-api = flask_restx.Api(app,
-                      version='0.1',
-                      title='Object Index API',
-                      description='API for storing info about Objects')
-# TODO validate=True
-
-uplns = api.namespace('upload', description='Upload operations')
-filns = api.namespace('file', description='File operations')
-objns = api.namespace('object', description='Object operations')
-
-# TODO add link to full file URL (i.e. GET /file/abcd)
-abf = api.model('BriefFile', {'uuid': flask_restx.fields.String(readonly=True),
-                              'url': flask_restx.fields.String(readonly=True)})
-                              #'link': flask_restx.fields.String(readonly=True)})
-s3l = api.model('S3Link', {'presigned': flask_restx.fields.String()})
-ull = api.model('UploadLinks', {'finished': flask_restx.fields.String(readonly=True),
-                                's3': flask_restx.fields.String(readonly=True)})
-upl = api.model('UploadSub', {'mtime': flask_restx.fields.DateTime(),
-                              'url': flask_restx.fields.String(required=True),
-                              'direct': flask_restx.fields.Boolean(default=True),
-                              'extra_file': flask_restx.fields.Raw(),
-                              'extra_object': flask_restx.fields.Raw(),
-                              'filename': flask_restx.fields.String(),
-                              'ul_user': flask_restx.fields.String(),
-                              'ul_sw': flask_restx.fields.String(),
-                              'ul_host': flask_restx.fields.String(),
-                              'partial': flask_restx.fields.Boolean(default=False),
-                              'bucket':  flask_restx.fields.String(required=True),
-                              'obj_size': flask_restx.fields.Integer(required=True),
-                              'checksum':  flask_restx.fields.String(required=True),
-                              'mime':  flask_restx.fields.String()})
-obj = api.model('Object', {'ctime': flask_restx.fields.DateTime(readonly=True),
-                           'files': flask_restx.fields.List(flask_restx.fields.Nested(abf)),
-                           #'url': flask_restx.fields.String(required=True),
-                           'extra': flask_restx.fields.Raw(),
-                           'key': flask_restx.fields.String(readonly=True),
-                           'completed': flask_restx.fields.Boolean(),
-                           'deleted': flask_restx.fields.Boolean(),
-                           'bucket':  flask_restx.fields.String(readonly=True),
-                           'obj_size': flask_restx.fields.Integer(readonly=True),
-                           'checksum':  Checksum(readonly=True),
-                           'mime':  flask_restx.fields.String(),
-                           'uuid': flask_restx.fields.String(readonly=True)})
-fil = api.model('File',  {'mtime': flask_restx.fields.DateTime(),
-                          'url': flask_restx.fields.String(readonly=True),
-                          'direct': flask_restx.fields.Boolean(),
-                          'extra': flask_restx.fields.Raw(),
-                          'ul_user': flask_restx.fields.String(),
-                          'ul_sw': flask_restx.fields.String(),
-                          'ul_host': flask_restx.fields.String(),
-                          'partial': flask_restx.fields.Boolean(),
-                          'file_object': flask_restx.fields.Nested(obj),
-                          'uuid': flask_restx.fields.String(readonly=True),
-                          'ctime': flask_restx.fields.DateTime(readonly=True)})
-ulr = api.model('UploadResult', {'file': flask_restx.fields.Nested(fil),
-                                 'exists': flask_restx.fields.Boolean(),
-                                 'upload': flask_restx.fields.Nested(ull),
-                                 'download': flask_restx.fields.String(readonly=True)})
+app = FastAPI(
+    title="Object Index API",
+    version="0.3.0",
+    description="API for storing info about Objects",
+)
 
 
-def get_dl_url(objobj):
+def get_dl_url(objobj: Object) -> str:
     """Get a URLish list of server, bucket, key"""
-    return f"{app.config['OBJIDX_S3']}{objobj.bucket}/{objobj.key}"
+    return f"{get_settings().s3}{objobj.bucket}/{objobj.key}"
 
 
-@uplns.route('/')
-class Upload(flask_restx.Resource):
-    """Upload convenience API"""
-
-    @uplns.doc('submit_upload')
-    @uplns.expect(upl)
-    @uplns.marshal_with(ulr, code=201)
-    def post(self):
-        """Upload or get info"""
-        exists = False
-        checksum = bytes.fromhex(api.payload['checksum'])
-        if api.payload['bucket'] not in app.config['OBJIDX_BUCKETS']:
-            flask_restx.abort(400, "Unknown bucket", bucket=api.payload['bucket'])
-        my_obj = db.Object.query.filter_by(checksum=checksum).one_or_none()
-        if my_obj:
-            exists = True
-            assert my_obj.obj_size == api.payload['obj_size']
-            if not my_obj.completed:
-                # Upload was initiated before but not finished
-                if not my_obj.deleted:
-                    # We believe it may still be in progress so will declare a conflict
-                    flask_restx.abort(409,
-                                      "Conflict: an upload of an object with the same checksum may currently be in progress",
-                                      object_uuid=str(my_obj.uuid))
-                # The failed upload has been cleared/deleted so now we will allow restart
-                my_obj.deleted = False
-                exists = False
-            assert not my_obj.deleted  # Object was intentionally deleted so we will not allow reupload
-            if api.payload['mime'] and not my_obj.mime:
-                my_obj.mime = api.payload['mime']
-            if api.payload.get('extra_object') and not my_obj.extra:
-                my_obj.extra = api.payload['extra_object']
-        else:
-            my_obj = db.Object(bucket=api.payload['bucket'],
-                               key=f"{checksum.hex()}-{sanitize_filename(api.payload['filename'])}",
-                               obj_size=api.payload['obj_size'],
-                               checksum=checksum,
-                               mime=api.payload.get('mime'),
-                               extra=api.payload.get('extra_object'))
-            db.db.session.add(my_obj)
-        my_file = db.File.query.filter_by(url=api.payload['url'], file_object=my_obj).one_or_none()
-        if my_file:
-            #assert exists
-            assert my_file.direct == api.payload['direct']
-            assert my_file.partial == api.payload['partial']
-            if api.payload['mtime'] and not my_file.mtime:
-                my_file.mtime = api.payload['mtime']
-            if api.payload.get('extra_file') and not my_file.extra:
-                my_file.extra = api.payload['extra_file']
-        else:
-            my_file = db.File(file_object=my_obj,
-                              mtime=api.payload['mtime'],
-                              url=api.payload['url'],
-                              direct=api.payload['direct'],
-                              partial=api.payload.get('partial'),
-                              extra=api.payload.get('extra_file'),
-                              ul_user=api.payload['ul_user'],
-                              ul_sw=api.payload['ul_sw'],
-                              ul_host=api.payload['ul_host'])
-            db.db.session.add(my_file)
-
-        db.db.session.commit()
-        #print(my_file.__dict__)
-        retobj =  {'file': my_file, 'exists': exists}
-        #retobj['file']['object'] = my_obj
-        if exists:
-            retobj['download'] = get_dl_url(my_obj)
-        else:
-            # NOTE the s3 URL is NOW really a URL
-            retobj['upload'] = {'s3': get_dl_url(my_obj),
-                                'finished': api.url_for(ObjectOne, obj_uuid=my_obj.uuid)}
-        return retobj, 201
-
-
-@filns.route('/')
-class FileList(flask_restx.Resource):
-    """File search"""
-
-    @filns.doc('search_files',
-               params={'url': {'description': 'Source URL to search for',
-                               'type': 'string'},
-                       'extra': {'description': 'Tags in file extra JSON to look for',
-                                 'type': 'string'}})
-    @filns.marshal_list_with(fil)
-    def get(self):
-        """Search for a file"""
-        parser = flask_restx.reqparse.RequestParser()
-        parser.add_argument('url')
-        parser.add_argument('extra')
-        args = parser.parse_args()
-        assert not (args.url and args.extra)
-        if args.extra:
-            parts = args.extra.partition('=')
-            assert parts[1] == '='
-            # TODO fix this - currently comes up with 0 results
-            return db.File.query.filter(db.File.extra[parts[0]].astext == parts[2]).all()
-        if args.url.endswith('*'):
-            url_prefix = escape_like_prefix(args.url[:-1])
-            return db.File.query.filter(
-                db.File.url.like(f"{url_prefix}%", escape=LIKE_ESCAPE_CHAR),
-            ).all()
-        return db.File.query.filter_by(url=args.url).all()
+@app.post("/upload/", status_code=201, response_model=UploadResult,
+          responses={
+              400: {"model": DetailResponse,
+                    "description": "Invalid checksum"},
+              409: {"model": ConflictResponse,
+                    "description": "Object size mismatch, an upload of an object "
+                                   "with the same checksum may currently be in "
+                                   "progress, the object was previously deleted, "
+                                   "or the existing file's direct/partial status "
+                                   "does not match"},
+              404: {"model": DetailResponse,
+                    "description": "Unknown bucket"}
+          })
+def upload(payload: UploadRequest, session: Session = Depends(get_session)):
+    """Upload or get info"""
+    # TODO consider raise HTTPException instead of JSONResponse
+    #      (currently differs to return object ID on 409)
+    exists = False
+    try:
+        checksum = bytes.fromhex(payload.checksum)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="checksum must be hex")
+    if payload.bucket not in get_settings().buckets:
+        raise HTTPException(status_code=404, detail="Unknown bucket")
+    my_obj = session.exec(
+        select(Object).where(Object.checksum == checksum)
+    ).one_or_none()
+    if my_obj:
+        exists = True
+        if my_obj.obj_size != payload.obj_size:
+            return JSONResponse(status_code=409,
+                                content={"message": "Object size mismatch",
+                                         "object_uuid": str(my_obj.uuid)})
+        if not my_obj.completed:
+            # Upload was initiated before but not finished
+            if not my_obj.deleted:
+                # We believe it may still be in progress so declare a conflict
+                return JSONResponse(
+                    status_code=409,
+                    content={"message": "Conflict: an upload of an object with "
+                                        "the same checksum may currently be in "
+                                        "progress",
+                             "object_uuid": str(my_obj.uuid)})
+            # The failed upload has been cleared/deleted so allow restart
+            my_obj.deleted = False
+            exists = False
+        if my_obj.deleted:
+            # Object was intentionally deleted; 409 here, 410 for GET data
+            return JSONResponse(status_code=409, content={"message": "object previously deleted",
+                                                          "object_uuid": str(my_obj.uuid)})
+        if payload.mime and not my_obj.mime:
+            my_obj.mime = payload.mime
+        if payload.extra_object and not my_obj.extra:
+            my_obj.extra = payload.extra_object
+    else:
+        my_obj = Object(bucket=payload.bucket,
+                        key=f"{checksum.hex()}-{sanitize_filename(payload.filename)}",
+                        obj_size=payload.obj_size,
+                        checksum=checksum,
+                        mime=payload.mime,
+                        extra=payload.extra_object)
+        session.add(my_obj)
+        session.flush()
+    my_file = session.exec(
+        select(File).where(File.url == payload.url, File.obj_uuid == my_obj.uuid)
+    ).one_or_none()
+    if my_file:
+        # NOTE: We do not assert "exists" here to allow retries of cleared failed uploads
+        if payload.direct != my_file.direct or payload.partial != my_file.partial:
+            return JSONResponse(status_code=409, content={"message": "partial/direct status does not match existing file",
+                                                          "file_uuid": str(my_file.uuid),
+                                                          "object_uuid": str(my_obj.uuid)})
+        if payload.mtime and not my_file.mtime:
+            my_file.mtime = payload.mtime
+        if payload.extra_file and not my_file.extra:
+            my_file.extra = payload.extra_file
+    else:
+        my_file = File(file_object=my_obj,
+                       mtime=payload.mtime,
+                       url=payload.url,
+                       direct=payload.direct,
+                       partial=payload.partial,
+                       extra=payload.extra_file,
+                       ul_user=payload.ul_user,
+                       ul_sw=payload.ul_sw,
+                       ul_host=payload.ul_host)
+        session.add(my_file)
+    session.commit()
+    session.refresh(my_file)
+    result = {"file": my_file, "exists": exists}
+    if exists:
+        result["download"] = get_dl_url(my_obj)
+    else:
+        # NOTE the s3 URL is NOW really a URL
+        result["upload"] = {"s3": get_dl_url(my_obj),
+                            "finished": f"/object/{my_obj.uuid}/"}
+    return result
 
 
-@filns.route('/<fil_uuid>/')
-@filns.response(404, 'File not found')
-@filns.param('fil_uuid', 'File UUID')
-class FileOne(flask_restx.Resource):
-    """File instance"""
-
-    @filns.doc('get_file')
-    @filns.marshal_with(fil)
-    def get(self, fil_uuid):
-        """Get library media"""
-        return db.File.query.get_or_404(uuid.UUID(fil_uuid))
-
-
-@objns.route('/')
-class ObjectList(flask_restx.Resource):
-    """Object search"""
-
-    @objns.doc('search_objects',
-               params={'checksum': {'description': 'Checksum to search for',
-                                    'type': 'string'}})
-    @objns.marshal_list_with(obj)
-    def get(self):
-        """Search for a file"""
-        parser = flask_restx.reqparse.RequestParser()
-        parser.add_argument('checksum')
-        args = parser.parse_args()
-        checksum = bytes.fromhex(args['checksum'])
-        return db.Object.query.filter_by(checksum=checksum).all()
+@app.get("/file/", response_model=list[FileRead],
+         responses={400: {"model": DetailResponse,
+                          "description": "Invalid url/extra query"}})
+def search_files(url: Optional[str] = None,
+                 extra: Optional[str] = None,
+                 session: Session = Depends(get_session)):
+    """Search for a file by source URL or by an extra-JSON tag"""
+    if url and extra:
+        raise HTTPException(status_code=400,
+                            detail="Cannot search by both url and extra")
+    if not url and not extra:
+        raise HTTPException(status_code=400,
+                            detail="Must search by url or extra")
+    if extra:
+        key, sep, value = extra.partition("=")
+        if sep != "=":
+            raise HTTPException(status_code=400, detail="extra must be key=value")
+        stmt = select(File).where(File.extra[key].astext == value)
+        return session.exec(stmt).all()
+    if url and url.endswith("*"):
+        url_prefix = escape_like_prefix(url[:-1])
+        stmt = select(File).where(
+            File.url.like(f"{url_prefix}%", escape=LIKE_ESCAPE_CHAR)
+        )
+        return session.exec(stmt).all()
+    return session.exec(select(File).where(File.url == url)).all()
 
 
-@objns.route('/<obj_uuid>/')
-@objns.response(404, 'Object not found')
-@objns.param('obj_uuid', 'Object UUID')
-class ObjectOne(flask_restx.Resource):
-    """Object instance"""
+@app.get("/file/{fil_uuid}/", response_model=FileRead, responses=NOT_FOUND)
+def get_file(fil_uuid: uuid.UUID, session: Session = Depends(get_session)):
+    """Get a single file"""
+    my_file = session.get(File, fil_uuid)
+    if my_file is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return my_file
 
-    @objns.doc('get_object')
-    @objns.marshal_with(obj)
-    def get(self, obj_uuid):
-        """Get library media"""
-        return db.Object.query.get_or_404(uuid.UUID(obj_uuid))
 
-    @objns.doc('put_object')
-    @objns.marshal_with(obj)
-    @objns.expect(obj)
-    def put(self, obj_uuid):
-        """Let us know an upload is completed"""
-        myobj = db.Object.query.get_or_404(uuid.UUID(obj_uuid))
-        new_completed = api.payload.get('completed')
-        new_deleted = api.payload.get('deleted')
-        if not myobj.completed and not myobj.deleted:
-            assert not (new_completed and new_deleted)
-            if new_completed or new_deleted:
-                if new_completed:
-                    myobj.completed = True
-                if new_deleted:
-                    myobj.deleted = True
-                db.db.session.commit()
-        return myobj
+@app.get("/object/", response_model=list[ObjectRead],
+         responses={400: {"model": DetailResponse,
+                          "description": "Invalid checksum"}})
+def search_objects(checksum: str, session: Session = Depends(get_session)):
+    """Search for objects by checksum"""
+    try:
+        checksum_bytes = bytes.fromhex(checksum)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="checksum must be hex")
+    return session.exec(
+        select(Object).where(Object.checksum == checksum_bytes)
+    ).all()
 
-@objns.route('/<obj_uuid>/download')
-@objns.response(404, 'Object not found')
-@objns.param('obj_uuid', 'Object UUID')
-class ObjectDownload(flask_restx.Resource):
-    """Provides ways of downloading the object contents"""
 
-    @objns.doc('download_object')
-    @objns.marshal_with(s3l)
-    def get(self, obj_uuid):
-        """Get S3 download info for object"""
-        db_obj = db.Object.query.get_or_404(uuid.UUID(obj_uuid))
-        return {'presigned': get_dl_url(db_obj)}
+@app.get("/object/{obj_uuid}/", response_model=ObjectRead, responses=NOT_FOUND)
+def get_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)):
+    """Get a single object"""
+    my_obj = session.get(Object, obj_uuid)
+    if my_obj is None:
+        raise HTTPException(status_code=404, detail="Object not found")
+    return my_obj
+
+
+@app.put("/object/{obj_uuid}/", response_model=ObjectRead,
+         responses={
+             400: {"model": DetailResponse,
+                   "description": "Cannot set both completed and deleted"},
+             404: {"model": DetailResponse},
+         })
+def update_object(obj_uuid: uuid.UUID,
+                  payload: ObjectUpdate,
+                  session: Session = Depends(get_session)):
+    """Let us know an upload is completed (or deleted)"""
+    my_obj = session.get(Object, obj_uuid)
+    if my_obj is None:
+        raise HTTPException(status_code=404, detail="Object not found")
+    new_completed = payload.completed
+    new_deleted = payload.deleted
+    if not my_obj.completed and not my_obj.deleted:
+        if new_completed and new_deleted:
+            raise HTTPException(status_code=400,
+                                detail="Cannot set both completed and deleted")
+        if new_completed or new_deleted:
+            if new_completed:
+                my_obj.completed = True
+            if new_deleted:
+                my_obj.deleted = True
+            session.commit()
+            session.refresh(my_obj)
+    return my_obj
+
+
+@app.get("/object/{obj_uuid}/download", response_model=S3Link, responses=NOT_FOUND)
+def download_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)):
+    """Get S3 download info for object"""
+    my_obj = session.get(Object, obj_uuid)
+    if my_obj is None:
+        raise HTTPException(status_code=404, detail="Object not found")
+    if my_obj.deleted:
+        raise HTTPException(status_code=410, detail="Object deleted")
+    if not my_obj.completed:
+        raise HTTPException(status_code=503, detail="Object upload in progress")
+    return {"presigned": get_dl_url(my_obj)}

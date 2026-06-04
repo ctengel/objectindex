@@ -22,14 +22,97 @@ Consume S3 API(s) (from MinIO or the like) and expose a rich metadata store.
 `pip3 install https://github.com/ctengel/objectindex/archive/refs/heads/main.zip`
 
 There are then a few different ways to use this:
-- RESTful API: `FLASK_APP=obj_idx.api OBJIDX_SETTINGS=/path/to/api.cfg flask run --host=0.0.0.0`
+- RESTful API (FastAPI): `uvicorn obj_idx.api:app --host=0.0.0.0 --port 29161` (configured via `OBJIDX_*` env vars, see below)
   - need simpler-objects running
   - need postgres running and setup
-    - see `OBJIDX_SETTINGS=/path/to/api.cfg python3 -m obj_idx.db_create`
-  - need API config file (see below)
-- GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 5001 --host=0.0.0.0`
+    - see `python3 -m obj_idx.db_create` (with the same `OBJIDX_*` env vars set)
+  - interactive API docs at `/docs`
+- GUI: `FLASK_APP=obj_idx.gui OBJIDX_GUI_SETTINGS=/path/to/gui.cfg flask run --port 29159 --host=0.0.0.0`
   - need GUI config file (see below)
 - CLI client: `obj-idx-client`
+
+
+## Upgrading to 0.3.0 (Flask → FastAPI)
+
+The flagship change in 0.3.0 is that the **REST API is now FastAPI** (served by
+uvicorn) instead of Flask‑RESTX. The **database schema is 100% unchanged** and
+the **GUI and CLI are unchanged**. Most of the REST contract is identical; the
+differences are limited to error responses and a few stricter validations,
+called out under "For API consumers" below.
+
+### For operators
+
+- **No database migration.** The Postgres schema (tables, columns, indexes, the
+  `bytea` `checksum`) is byte‑for‑byte identical. Point 0.3.0 at your existing
+  database as‑is — no `db_create`, no `ALTER` required.
+- **New/changed dependencies.** `flask-restx`, `flask-sqlalchemy` and the
+  `sqlalchemy < 2` pin are gone; the API now uses `fastapi`, `uvicorn`,
+  `pydantic-settings`, `sqlmodel` and `sqlalchemy 2.0`. Reinstall the package
+  (`pip install -e .`) to pull them. (Flask itself is still a dependency — the
+  GUI is still Flask.)
+- **Invocation changed (WSGI → ASGI).** Start the API with
+  `uvicorn obj_idx.api:app --host 0.0.0.0 --port 29161`. Update any
+  systemd unit / process manager that previously launched the Flask app.
+- **Configuration moved from a file to environment variables.** Earlier
+  releases used a Flask `.cfg` Python file referenced by `OBJIDX_SETTINGS`; the
+  API no longer reads it. Configuration is now environment variables (or a
+  `.env` file), all prefixed `OBJIDX_`:
+
+  | Old `.cfg` key | New env var | Notes |
+  |----------------|-------------|-------|
+  | `SQLALCHEMY_DATABASE_URI` | `OBJIDX_DATABASE_URL` | include the driver, e.g. `postgresql+psycopg2:///objidx` |
+  | `OBJIDX_S3` | `OBJIDX_S3` | unchanged meaning |
+  | `OBJIDX_BUCKETS` | `OBJIDX_BUCKETS` | **now comma‑separated** (`bucket1,bucket2`), not a Python/JSON list |
+
+  The old Flask‑only keys `DEBUG` and `SQLALCHEMY_TRACK_MODIFICATIONS` are
+  obsolete and can be dropped. See `sample.env` and the
+  [API config section](#api) below.
+- **The GUI is unchanged.** It is still Flask and still configured via
+  `OBJIDX_GUI_SETTINGS` pointing at a `.cfg` file (`OBJIDX_URL`, `OBJIDX_AUTH`).
+- **Interactive API docs** are now the OpenAPI UI at `/docs` (raw spec at
+  `/openapi.json`); the old Flask‑RESTX Swagger page is gone.
+- **Default ports** Now 29161 (API) and 29159 (GUI)
+
+### For API consumers
+
+The wire contract is **mostly identical** — same routes and methods, same
+request bodies, same success response shapes (`checksum` is still a lowercase
+hex string; a `File` embeds the full `file_object`, an `Object` embeds brief
+`files` of `{uuid, url}`), and `POST /upload/` still returns **201**. The upload
+state machine and SHA‑256 dedup are unchanged.
+
+The differences are in **error responses** (mostly turning previous `500`
+crashes into proper `4xx`) and a couple of **stricter validations**:
+
+| Endpoint / case | 0.2.x (Flask) | 0.3.0 (FastAPI) |
+|---|---|---|
+| Unknown bucket on `POST /upload/` | `400`, body `{message, bucket}` (recently `500`) | **`404`**, body `{detail}` |
+| Same checksum, different `obj_size` | `500` | **`409`** `{message, object_uuid}` |
+| Reupload of a permanently‑deleted object | `500` | **`409`** `{message, object_uuid}` |
+| Existing file, different `direct`/`partial` | `500` | **`409`** `{message, file_uuid, object_uuid}` |
+| Upload may be in progress | `409` `{message, object_uuid}` | **`409`** (unchanged) |
+| Non‑hex `checksum` (`/upload/`, `/object/`) | `500` | **`400`** `{detail}` |
+| Missing required body field | `500` | **`422`** |
+| Missing `filename` on `/upload/` | `500` | **`422`** (now explicitly required) |
+| `GET /file/` with neither `url` nor `extra` | `500` | **`400`** `{detail}` |
+| Malformed UUID in a path | `500` | **`422`** |
+| `GET /object/{uuid}/download`, object deleted | `200` (returned a URL) | **`410`** |
+| `GET /object/{uuid}/download`, upload not finished | `200` (returned a URL) | **`503`** |
+| `PUT /object/{uuid}/` with both `completed` + `deleted` | `500` | **`400`** `{detail}` |
+
+Notes for client authors:
+
+- **Error body shape.** Validation and most errors use FastAPI's standard
+  `{"detail": ...}`. The `POST /upload/` conflict (`409`) responses keep the
+  historical flat shape `{"message", "object_uuid"}` (plus `file_uuid` for the
+  direct/partial case), so existing clients that read `object_uuid` on a 409
+  keep working.
+- **Behavioral changes most likely to bite:** if your client treats unknown
+  bucket as `400` or reads the `bucket` field, switch to `404` / `detail`; and
+  if it assumes `…/download` always returns a URL, handle `410` (deleted) and
+  `503` (in progress).
+- **Everything else** simply converts a former `500` into a precise `4xx`/`422`,
+  so a well‑behaved client that never triggered those crashes is unaffected.
 
 
 ## Interim infrastructure
@@ -138,34 +221,7 @@ We need to periodically monitor and tune hardware:
 
 #### Object Storage install
 
-Install simpler objects
-
-#### systemd example
-
-`$ systemctl list-units | grep '/path/to/objectstore' | awk '{ print $1 }'`
-
-`/etc/systemd/system/minio.service`:
-
-```
-[Unit]
-Description=MinIO Object Storage Service
-After=network-online.target objectstoremountpoint.mount
-
-[Service]
-ExecStart=/home/minio/start.sh
-WorkingDirectory=/home/minio
-User=minio
-Group=minio
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```
-$ sudo systemctl start minio
-$ sudo systemctl status minio
-$ sudo systemctl enable minio
-```
+Install simpler objects (README there includes systemd and ansible instructions)
 
 ### Postgres
 
@@ -188,11 +244,11 @@ Note also that modifying `/var/lib/pgsql/data/pg_hba.conf` to include `scram-sha
 
 Following steps to be run as user who will run the API.
 ```
-OBJIDX_SETTINGS=../samp.cfg python3 -m obj_idx.db_create
+OBJIDX_DATABASE_URL=postgresql+psycopg2:///DB OBJIDX_S3=... OBJIDX_BUCKETS=bucket1 python3 -m obj_idx.db_create
 pg_dump --schema-only DB > schema.sql
 ```
 
-The `db_create.py` script will empty a database and create tables in the schema, and uses the same config file as the web app.
+The `db_create.py` script will empty a database and create tables in the schema, and uses the same `OBJIDX_*` environment configuration as the API.
 
 #### Moving/deleting buckets
 
@@ -214,25 +270,72 @@ objidx1d=> delete from object where bucket='old';
 
 ### API
 
+The API (FastAPI) is configured by environment variables, all prefixed
+`OBJIDX_` (a `.env` file in the working directory is also read). See
+`sample.env`:
+
 ```
-DEBUG = True
-SQLALCHEMY_DATABASE_URI = 'postgresql:///objidx'
-SQLALCHEMY_TRACK_MODIFICATIONS = False
-OBJIDX_S3 = 'http://user:pass@localhost:9000/'
-OBJIDX_BUCKETS = ['bucket1']
+OBJIDX_DATABASE_URL=postgresql+psycopg2:///objidx
+OBJIDX_S3=http://localhost:29164/
+OBJIDX_BUCKETS=bucket1
 ```
 
-- `OBJIDX_S3` is a special URL for S3
-- `OBJIDX_BUCKETS` is a list of buckets that may be used.
-- The rest are standard Flask and sqlalchemy options
+- `OBJIDX_DATABASE_URL` is the SQLAlchemy database URL (include the driver).
+- `OBJIDX_S3` is the URL for Simpler Objects Locator.
+- `OBJIDX_BUCKETS` is a comma-separated list of buckets that may be used
+  (e.g. `bucket1,bucket2`).
+
+Previous releases used a Flask `.cfg` file referenced by `OBJIDX_SETTINGS`;
+the API no longer uses it (the GUI still does — see below).
 
 ### GUI
 
 ```
 DEBUG = True
-OBJIDX_URL="http://127.0.0.1:5000/"  # change if running on a different host
+OBJIDX_URL="http://127.0.0.1:29161/"  # change if running on a different host
 OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideally pass thru in fut
 ```
+
+## Testing
+
+The API has a black-box contract test suite under `tests/`. It drives the
+FastAPI app in-process via Starlette's `TestClient` (no server process) and pins
+the REST wire contract.
+
+The tests still need a real PostgreSQL (the suite relies on JSONB, `bytea` and
+`LIKE`-escaping, which SQLite can't reproduce — `TestClient` only replaces the
+HTTP transport, not the database). Point `TEST_DATABASE_URL` at any database you
+can create/drop tables in — the suite recreates the two tables before every test:
+
+```bash
+pip install -e '.[test]'
+TEST_DATABASE_URL=postgresql+psycopg2:///objidx_test python3 -m pytest tests/
+```
+
+### Spinning up a throwaway PostgreSQL
+
+If you don't already have a database handy, you can run a disposable one from a
+local data directory without touching any system service:
+
+```bash
+# 1. Initialize a fresh data dir (trust auth, your OS user as superuser)
+initdb -D "$PWD/pgdata" -U "$USER" --auth=trust
+
+# 2. Start it with a socket in /tmp (avoids needing /var/run/postgresql)
+pg_ctl -D "$PWD/pgdata" -o "-k /tmp -p 5432" -l "$PWD/pgdata/pg.log" start
+
+# 3. Create the test database
+createdb -h /tmp -U "$USER" objidx_test
+
+# 4. Run the suite against it
+TEST_DATABASE_URL="postgresql+psycopg2://$USER@/objidx_test?host=/tmp" python3 -m pytest tests/
+
+# Tear down when done
+pg_ctl -D "$PWD/pgdata" stop && rm -rf "$PWD/pgdata"
+```
+
+(Add `pgdata/` to your local ignores, or put it outside the repo, so the data
+directory isn't accidentally committed.)
 
 ## Issues
 
@@ -251,4 +354,29 @@ Finally, once an object is in normal state, the object may be noted as permenant
 
 ### slow json lookups
 
-Add an index! See schema-79.sql
+`GET /file/?extra=ytdl-id=...` does a JSONB lookup on `extra->>'ytdl-id'`, which
+is **not** indexed by default — `db_create` deliberately omits it, because the
+expression index only pays off for deployments dominated by `ytdl-id` files and
+is wasted space otherwise.
+
+If many of your files carry a `ytdl-id`, an operator can add the index at any
+time (initial deployment or later, on a live table). The simple form is in
+`scripts/schema-79.sql`:
+
+```
+psql -d objidx -f scripts/schema-79.sql
+```
+
+If you also store a significant number of *non*-ytdl files, prefer a **partial**
+index so it only covers rows that actually have a `ytdl-id` — smaller and
+cheaper to maintain. Equality lookups (`extra->>'ytdl-id' = '...'`) imply
+`NOT NULL`, so the planner still uses it:
+
+```sql
+CREATE INDEX CONCURRENTLY ix_file_extra_ytdl_id
+    ON file ((extra ->> 'ytdl-id'))
+    WHERE (extra ->> 'ytdl-id') IS NOT NULL;
+```
+
+(`CONCURRENTLY` avoids blocking writes while the index builds on a live table;
+it cannot run inside a transaction block.)
