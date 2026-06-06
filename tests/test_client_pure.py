@@ -3,7 +3,8 @@
 import pathlib
 import tempfile
 
-from obj_idx.client import get_mime, is_valid_url
+from obj_idx.client import get_mime
+from obj_idx.common import is_valid_url
 
 # ---------------------------------------------------------------------------
 # is_valid_url

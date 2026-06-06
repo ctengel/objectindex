@@ -8,7 +8,7 @@ import pathlib
 import mimetypes
 import datetime
 import warnings
-from urllib.parse import urlsplit, urlparse
+from urllib.parse import urlsplit
 import os
 import tempfile
 from simpler_objects.client import (
@@ -18,6 +18,7 @@ from simpler_objects.client import (
     ClientError,
 )
 from . import clilib
+from .common import is_valid_url
 
 SW_STRING = 'OIC-0.3.1'
 
@@ -25,15 +26,6 @@ def get_mime(file_path: pathlib.Path) -> str:
     """Determine MIME type of a given path"""
     # TODO add magic from mediacrawler
     return mimetypes.guess_type(file_path)[0]
-
-# TODO consider moving/removing
-def is_valid_url(url_string):
-    """True if URL, False if not"""
-    try:
-        result = urlparse(url_string)
-        return all([result.scheme, result.netloc])
-    except ValueError:
-        return False
 
 def find_files(filename: str, obj_idx, is_url=False, must_direct=True):
     """Given a filename or URL, check if maybe we have it.
@@ -83,6 +75,8 @@ def upload_core(filename: str,
 
     typically you want upload_local() or upload_remote()
     """
+    if not is_valid_url(url):
+        raise ValueError(f"invalid url: {url!r}")
     file_path = pathlib.Path(filename)
     file_stat = file_path.stat()
     file_checksum = checksum(file_path)

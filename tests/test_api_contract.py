@@ -88,6 +88,14 @@ def test_upload_new(client):
     assert body["upload"]["finished"] == f"/object/{obj['uuid']}/"
 
 
+def test_upload_rejects_invalid_url(client):
+    # A bare string / empty url has no scheme+netloc and is rejected at the
+    # request-validation layer (422) before any object is created.
+    for bad_url in ("not a url", ""):
+        resp, _ = _upload(client, url=bad_url)
+        assert resp.status_code == 422
+
+
 def test_upload_dedup_returns_existing(client):
     content = b"dedup me"
     resp1, _ = _upload(client, content=content)

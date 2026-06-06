@@ -154,6 +154,18 @@ def test_upload_core_new_file():
     assert result is mock_file
 
 
+def test_upload_core_rejects_invalid_url():
+    # A bad url is caught before any network/API call (initiate_upload never runs).
+    with tempfile.NamedTemporaryFile() as tf:
+        tf.write(CONTENT)
+        tf.flush()
+        mock_oi = _mock_obj_idx()
+        with pytest.raises(ValueError):
+            client.upload_core(tf.name, mock_oi, 'bucket1',
+                               'not-a-url', datetime.datetime(2021, 1, 1))
+    mock_oi.initiate_upload.assert_not_called()
+
+
 def test_upload_core_existing_file_skips_upload():
     with tempfile.NamedTemporaryFile() as tf:
         tf.write(CONTENT)

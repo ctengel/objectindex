@@ -12,7 +12,9 @@ import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+
+from .common import is_valid_url
 
 
 class BriefFile(BaseModel):
@@ -103,6 +105,13 @@ class UploadRequest(BaseModel):
     ul_host: Optional[str] = None
     extra_file: Optional[Any] = None
     extra_object: Optional[Any] = None
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        if not is_valid_url(value):
+            raise ValueError(f"invalid url: {value!r}")
+        return value
 
 
 class ObjectUpdate(BaseModel):
