@@ -274,7 +274,7 @@ def upload_metadata(filename: str,
         extra['ytdl-info'] = ytdl_info
         extra['ytdl-extractor'] = ytdl_info['extractor_key'].lower()
         extra['ytdl-id'] = f"{ytdl_info['extractor_key'].lower()} {ytdl_info['id']}"
-        if not mtime:
+        if not mtime and ytdl_info.get('timestamp'):
             mtime = datetime.datetime.fromtimestamp(ytdl_info['timestamp'])
     else:
         extra['ytdl-info'] = None
