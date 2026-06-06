@@ -11,6 +11,7 @@ import warnings
 from urllib.parse import urlsplit
 import os
 import tempfile
+import magic
 from simpler_objects.client import (
     simple_upload,
     simple_download,
@@ -22,10 +23,45 @@ from .common import is_valid_url
 
 SW_STRING = 'OIC-0.3.1'
 
+# MIME types whose canonical extension is missing or wrong in Python's stdlib.
+_MIME_EXT_OVERRIDES = {
+    'video/mp2t': 'ts',
+}
+
+
+_MIME_MAGIC_FALLBACK = {'application/octet-stream', 'inode/x-empty', 'application/x-empty'}
+
+
 def get_mime(file_path: pathlib.Path) -> str:
-    """Determine MIME type of a given path"""
-    # TODO add magic from mediacrawler
-    return mimetypes.guess_type(file_path)[0]
+    """Determine MIME type of a given path using file content, not extension."""
+    result = magic.detect_from_filename(str(file_path)).mime_type.lower()
+    if not result or result in _MIME_MAGIC_FALLBACK:
+        result, _ = mimetypes.guess_type(str(file_path))
+    return result
+
+
+def correct_extension(filename: str, mime: str) -> str:
+    """Return filename with its extension corrected to match mime, if possible.
+
+    Only replaces the extension when we know a better one; never strips an
+    extension we can't improve on.
+    """
+    if not mime or not filename:
+        return filename
+    mime = mime.lower()
+    root, current_ext = os.path.splitext(filename)
+    # If the extension already matches the MIME type, leave it alone.
+    if mimetypes.guess_type(filename)[0] == mime:
+        return filename
+    # Determine the correct extension.
+    new_ext = _MIME_EXT_OVERRIDES.get(mime)
+    if not new_ext:
+        guessed = mimetypes.guess_extension(mime)
+        if guessed:
+            new_ext = guessed.lstrip('.')
+    if not new_ext or new_ext == current_ext.lstrip('.'):
+        return filename
+    return f"{root or 'file'}.{new_ext}"
 
 def find_files(filename: str, obj_idx, is_url=False, must_direct=True):
     """Given a filename or URL, check if maybe we have it.
@@ -86,6 +122,7 @@ def upload_core(filename: str,
         file_mime = get_mime(file_path)
     if not key_hint:
         key_hint = os.path.basename(urlsplit(url).path)
+    key_hint = correct_extension(key_hint, file_mime)
 
     try:
         my_file = obj_idx.initiate_upload(url=url,

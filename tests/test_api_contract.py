@@ -169,14 +169,38 @@ def test_upload_missing_required_field_422(client):
     assert any(err["loc"][-1] == "checksum" for err in resp.json()["detail"])
 
 
-def test_upload_missing_filename_422(client):
-    # filename is required: a missing/null filename would otherwise mint a
-    # degenerate object key of "{sha256}-" (no name), so reject it loudly.
+def test_upload_missing_filename_generates_key(client):
+    # filename is optional: the server generates a key component from the MIME
+    # type rather than rejecting the request or minting a degenerate "{sha256}-".
     payload = make_payload()
     del payload["filename"]
     resp = client.post("/upload/", json=payload)
-    assert resp.status_code == 422
-    assert any(err["loc"][-1] == "filename" for err in resp.json()["detail"])
+    assert resp.status_code == 201
+    key = resp.json()["file"]["file_object"]["key"]
+    suffix = key.split("-", 1)[1]
+    assert suffix and suffix != ""  # no degenerate key
+
+
+def test_upload_empty_string_filename_uses_fallback(client):
+    # An empty-string filename must not produce a key ending in just "-".
+    payload = make_payload(content=b"empty fn", url="file://host/path/empty.txt")
+    payload["filename"] = ""
+    resp = client.post("/upload/", json=payload)
+    assert resp.status_code == 201
+    key = resp.json()["file"]["file_object"]["key"]
+    assert not key.endswith("-")
+
+
+def test_upload_no_filename_with_mime_uses_extension(client):
+    # When no filename but MIME is provided, the key suffix includes a file
+    # extension derived from the MIME type.
+    payload = make_payload(content=b"mp4 content", url="file://host/path/video",
+                           mime="video/mp4")
+    del payload["filename"]
+    resp = client.post("/upload/", json=payload)
+    assert resp.status_code == 201
+    key = resp.json()["file"]["file_object"]["key"]
+    assert key.endswith(".mp4")
 
 
 # --------------------------------------------------------------------------

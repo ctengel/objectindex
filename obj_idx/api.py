@@ -1,5 +1,6 @@
 """Object Index RESTful API (FastAPI)."""
 
+import mimetypes
 import uuid
 from typing import Optional
 
@@ -32,6 +33,26 @@ def sanitize_filename(requested_name):
     translation_table = str.maketrans({ch: REPLACE_CHAR
                                        for ch in set(requested_name) - set(ACCEPT_CHARS)})
     return requested_name.translate(translation_table)
+
+
+def build_key_component(filename: Optional[str], mime: Optional[str]) -> str:
+    """Return the filename portion of an object key.
+
+    Uses filename when available; falls back to a MIME-derived name when the
+    client sends no filename (or an empty one that sanitizes away to nothing).
+    """
+    if filename:
+        sanitized = sanitize_filename(filename)
+        if sanitized:
+            return sanitized
+    if mime:
+        ext = mimetypes.guess_extension(mime)
+        if ext:
+            return f"upload{ext}"
+        # mimetypes has no mapping — use the MIME subtype as the extension.
+        subtype = mime.split('/')[-1] if '/' in mime else mime
+        return f"upload.{sanitize_filename(subtype)}"
+    return "upload"
 
 
 def escape_like_prefix(value):
@@ -109,7 +130,7 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
             my_obj.extra = payload.extra_object
     else:
         my_obj = Object(bucket=payload.bucket,
-                        key=f"{checksum.hex()}-{sanitize_filename(payload.filename)}",
+                        key=f"{checksum.hex()}-{build_key_component(payload.filename, payload.mime)}",
                         obj_size=payload.obj_size,
                         checksum=checksum,
                         mime=payload.mime,
