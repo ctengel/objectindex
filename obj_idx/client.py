@@ -11,6 +11,7 @@ import warnings
 from urllib.parse import urlsplit
 import os
 import tempfile
+import magic
 from simpler_objects.client import (
     simple_upload,
     simple_download,
@@ -20,12 +21,15 @@ from simpler_objects.client import (
 from . import clilib
 from .common import is_valid_url
 
-SW_STRING = 'OIC-0.3.1'
+SW_STRING = 'OIC-0.3.2'
+
+def get_mime_data(file_path: pathlib.Path) -> str:
+    """Determine mime type based on file data"""
+    return  magic.detect_from_filename(str(file_path)).mime_type.lower()
 
 def get_mime(file_path: pathlib.Path) -> str:
-    """Determine MIME type of a given path"""
-    # TODO add magic from mediacrawler
-    return mimetypes.guess_type(file_path)[0]
+    """Determine MIME type of a given path from extension"""
+    return mimetypes.guess_type(file_path, strict=False)[0]
 
 def find_files(filename: str, obj_idx, is_url=False, must_direct=True):
     """Given a filename or URL, check if maybe we have it.
@@ -60,6 +64,20 @@ def find_files(filename: str, obj_idx, is_url=False, must_direct=True):
             and (file.info['direct'] or not must_direct)]
 
 
+def reconcile_mime_ext(filename, mime):
+    if not mime:
+        return filename, get_mime(filename)
+    new_ext = mimetypes.guess_extension(mime, strict=False)
+    if not filename:
+        return f"{mime.partition('/')[0]}{new_ext or ''}", mime
+    if not get_mime(filename):
+        return f"{filename}{new_ext or ''}", mime
+    if get_mime(filename) == mime:
+        return filename, mime
+    warnings.warn(f"File {filename} extension doesn't match MIME {mime}, appending {new_ext}")
+    return f"{filename}{new_ext or ''}"
+
+
 def upload_core(filename: str,
                 obj_idx: clilib.ObjectIndex,
                 bucket: str,
@@ -82,11 +100,15 @@ def upload_core(filename: str,
     file_checksum = checksum(file_path)
     if checksum_val:
         assert checksum_val == file_checksum
-    if not file_mime:
-        file_mime = get_mime(file_path)
+    data_mime = get_mime_data(file_path)
+    if file_mime:
+        if data_mime and file_mime != data_mime:
+            warnings.warn(f"Given MIME type {file_mime} doesn't seem to match apparent data {data_mime}")
+    else:
+        file_mime = data_mime
     if not key_hint:
         key_hint = os.path.basename(urlsplit(url).path)
-
+    key_hint, file_mime = reconcile_mime_ext(key_hint, file_mime)
     try:
         my_file = obj_idx.initiate_upload(url=url,
                                           bucket=bucket,
