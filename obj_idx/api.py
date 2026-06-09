@@ -13,6 +13,7 @@ from .schemas import (
     ConflictResponse,
     DetailResponse,
     FileRead,
+    ObjectBrief,
     ObjectRead,
     ObjectUpdate,
     S3Link,
@@ -195,9 +196,34 @@ def get_file(fil_uuid: uuid.UUID, session: Session = Depends(get_session)):
 
 @app.get("/object/", response_model=list[ObjectRead],
          responses={400: {"model": DetailResponse,
-                          "description": "Invalid checksum"}})
-def search_objects(checksum: str, session: Session = Depends(get_session)):
-    """Search for objects by checksum"""
+                          "description": "Invalid checksum or query"},
+                    404: {"model": DetailResponse,
+                          "description": "Unknown bucket"}})
+def search_objects(checksum: Optional[str] = None,
+                   bucket: Optional[str] = None,
+                   session: Session = Depends(get_session)):
+    """Search objects by checksum, or list all objects in a bucket.
+
+    A ``bucket`` listing returns brief metadata (``ObjectBrief``) for every
+    object in the bucket, including the ``completed``/``deleted`` flags, but
+    without embedded files or the ``extra`` blob.
+    """
+    if checksum and bucket:
+        raise HTTPException(status_code=400,
+                            detail="Cannot search by both checksum and bucket")
+    if bucket:
+        if bucket not in get_settings().buckets:
+            raise HTTPException(status_code=404, detail="Unknown bucket")
+        rows = session.exec(
+            select(Object).where(Object.bucket == bucket)
+        ).all()
+        return JSONResponse(
+            content=[ObjectBrief.model_validate(o).model_dump(mode="json")
+                     for o in rows]
+        )
+    if not checksum:
+        raise HTTPException(status_code=400,
+                            detail="Must search by checksum or bucket")
     try:
         checksum_bytes = bytes.fromhex(checksum)
     except ValueError:

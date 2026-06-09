@@ -48,6 +48,26 @@ class ObjectRead(BaseModel):
         return value.hex() if value is not None else None
 
 
+class ObjectBrief(BaseModel):
+    """Lightweight object view for bucket listings (no embedded files/extra)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    uuid: UUID
+    bucket: str
+    key: str
+    obj_size: int
+    checksum: Optional[bytes] = None
+    ctime: datetime.datetime
+    mime: Optional[str] = None
+    completed: bool
+    deleted: bool
+
+    @field_serializer("checksum")
+    def _serialize_checksum(self, value: Optional[bytes]) -> Optional[str]:
+        return value.hex() if value is not None else None
+
+
 class FileRead(BaseModel):
     """Full file view (embeds the full object as ``file_object``)."""
 
