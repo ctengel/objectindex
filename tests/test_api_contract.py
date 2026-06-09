@@ -169,14 +169,17 @@ def test_upload_missing_required_field_422(client):
     assert any(err["loc"][-1] == "checksum" for err in resp.json()["detail"])
 
 
-def test_upload_missing_filename_422(client):
-    # filename is required: a missing/null filename would otherwise mint a
-    # degenerate object key of "{sha256}-" (no name), so reject it loudly.
+def test_upload_missing_filename_generates_key(client):
+    # filename is optional: a missing filename falls back to a MIME-derived
+    # name (here text/plain -> text.txt) rather than minting a degenerate
+    # "{sha256}-" key or rejecting the request.
     payload = make_payload()
     del payload["filename"]
     resp = client.post("/upload/", json=payload)
-    assert resp.status_code == 422
-    assert any(err["loc"][-1] == "filename" for err in resp.json()["detail"])
+    assert resp.status_code == 201
+    key = resp.json()["file"]["file_object"]["key"]
+    suffix = key.split("-", 1)[1]
+    assert suffix and not key.endswith("-")
 
 
 # --------------------------------------------------------------------------

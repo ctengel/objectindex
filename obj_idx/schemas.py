@@ -98,7 +98,7 @@ class UploadRequest(BaseModel):
     direct: bool = True
     partial: bool = False
     mtime: Optional[datetime.datetime] = None
-    filename: str
+    filename: Optional[str] = None
     mime: Optional[str] = None
     ul_user: Optional[str] = None
     ul_sw: Optional[str] = None

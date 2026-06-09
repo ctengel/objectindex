@@ -19,6 +19,7 @@ from .schemas import (
     UploadRequest,
     UploadResult,
 )
+from .common import reconcile_mime_ext
 
 NOT_FOUND = {404: {"model": DetailResponse}}
 
@@ -29,6 +30,8 @@ LIKE_ESCAPE_CHAR = "\\"
 
 def sanitize_filename(requested_name):
     """Santize a filename into a usable key"""
+    if not requested_name:
+        return None
     translation_table = str.maketrans({ch: REPLACE_CHAR
                                        for ch in set(requested_name) - set(ACCEPT_CHARS)})
     return requested_name.translate(translation_table)
@@ -43,7 +46,7 @@ def escape_like_prefix(value):
 
 app = FastAPI(
     title="Object Index API",
-    version="0.3.0",
+    version="0.3.2",
     description="API for storing info about Objects",
 )
 
@@ -108,11 +111,12 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
         if payload.extra_object and not my_obj.extra:
             my_obj.extra = payload.extra_object
     else:
+        my_obj_fn, my_obj_mime = reconcile_mime_ext(sanitize_filename(payload.filename), payload.mime)
         my_obj = Object(bucket=payload.bucket,
-                        key=f"{checksum.hex()}-{sanitize_filename(payload.filename)}",
+                        key=f"{checksum.hex()}-{my_obj_fn}" if my_obj_fn else checksum.hex(),
                         obj_size=payload.obj_size,
                         checksum=checksum,
-                        mime=payload.mime,
+                        mime=my_obj_mime,
                         extra=payload.extra_object)
         session.add(my_obj)
         session.flush()
