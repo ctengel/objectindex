@@ -75,6 +75,7 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     # TODO consider raise HTTPException instead of JSONResponse
     #      (currently differs to return object ID on 409)
     exists = False
+    in_progress = False
     try:
         checksum = bytes.fromhex(payload.checksum)
     except ValueError:
@@ -93,16 +94,14 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
         if not my_obj.completed:
             # Upload was initiated before but not finished
             if not my_obj.deleted:
-                # We believe it may still be in progress so declare a conflict
-                return JSONResponse(
-                    status_code=409,
-                    content={"message": "Conflict: an upload of an object with "
-                                        "the same checksum may currently be in "
-                                        "progress",
-                             "object_uuid": str(my_obj.uuid)})
-            # The failed upload has been cleared/deleted so allow restart
-            my_obj.deleted = False
-            exists = False
+                # May still be in progress: we still record a File for this
+                # (new) source URL below, but the client must not upload bytes
+                # or get a download URL, so we declare a conflict at the end.
+                in_progress = True
+            else:
+                # The failed upload has been cleared/deleted so allow restart
+                my_obj.deleted = False
+                exists = False
         if my_obj.deleted:
             # Object was intentionally deleted; 409 here, 410 for GET data
             return JSONResponse(status_code=409, content={"message": "object previously deleted",
@@ -147,6 +146,15 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
         session.add(my_file)
     session.commit()
     session.refresh(my_file)
+    if in_progress:
+        # The File is recorded, but an upload of the same checksum may still be
+        # in flight: tell the client not to upload and not to expect a download.
+        return JSONResponse(
+            status_code=409,
+            content={"message": "Conflict: an upload of an object with the "
+                                "same checksum may currently be in progress",
+                     "object_uuid": str(my_obj.uuid),
+                     "file_uuid": str(my_file.uuid)})
     result = {"file": my_file, "exists": exists}
     if exists:
         result["download"] = get_dl_url(my_obj)

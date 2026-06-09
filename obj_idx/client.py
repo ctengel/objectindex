@@ -107,8 +107,11 @@ def upload_core(filename: str,
     except clilib.requests.HTTPError as e:
         if e.response.status_code != 409:
             raise e
+        conflict = e.response.json()
         warnings.warn(f"Conflict for file {url} {file_checksum.hex()}... "
-                      f"existing object {e.response.json()['object_uuid']}")
+                      f"existing object {conflict['object_uuid']}"
+                      + (f" file {conflict['file_uuid']}"
+                         if conflict.get('file_uuid') else ""))
         # TODO consider throwing an exception?
         return None
 

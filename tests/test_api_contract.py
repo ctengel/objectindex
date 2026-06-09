@@ -121,6 +121,50 @@ def test_upload_conflict_409_has_object_uuid(client):
     assert resp2.json()["object_uuid"] == obj_uuid
 
 
+def test_upload_in_progress_records_file(client):
+    # A second upload of the same in-progress content from a *new* url still
+    # 409s, but now records a File for that url and returns its uuid.
+    content = b"in progress"
+    resp1, _ = _upload(client, content=content)
+    obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
+
+    other_url = "file://host/other.txt"
+    resp2, _ = _upload(client, content=content, url=other_url)
+    assert resp2.status_code == 409
+    body = resp2.json()
+    assert body["object_uuid"] == obj_uuid
+    file_uuid = body["file_uuid"]
+    assert uuid.UUID(file_uuid)
+
+    # The File was actually persisted and is linked to the in-progress object.
+    fil = client.get(f"/file/{file_uuid}/")
+    assert fil.status_code == 200
+    assert fil.json()["url"] == other_url
+    assert fil.json()["file_object"]["uuid"] == obj_uuid
+
+    # The object now carries both source urls.
+    obj = client.get(f"/object/{obj_uuid}/").json()
+    assert {f["url"] for f in obj["files"]} == {
+        "file://host/path/hello.txt", other_url,
+    }
+
+
+def test_upload_in_progress_same_url_no_duplicate_file(client):
+    # Re-posting the same in-progress url 409s referencing the original File and
+    # does not create a second File for it.
+    content = b"in progress"
+    resp1, _ = _upload(client, content=content)
+    orig_file_uuid = resp1.json()["file"]["uuid"]
+    obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
+
+    resp2, _ = _upload(client, content=content)
+    assert resp2.status_code == 409
+    assert resp2.json()["file_uuid"] == orig_file_uuid
+
+    obj = client.get(f"/object/{obj_uuid}/").json()
+    assert len(obj["files"]) == 1
+
+
 def test_upload_size_mismatch_rejected(client):
     content = b"sizing"
     resp1, _ = _upload(client, content=content)
