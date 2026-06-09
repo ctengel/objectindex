@@ -1,0 +1,13 @@
+# `Reload` is defined before `Restart` so a changed unit file is reloaded into
+# systemd before the unit is restarted.
+
+- name: Reload systemd user daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+
+- name: Restart objectindex service
+  ansible.builtin.systemd:
+    name: "{{ objectindex_unit }}"
+    state: restarted
+    scope: user

@@ -1,0 +1,38 @@
+# Example inventory for the ObjectIndex API Ansible playbook.
+#
+# Copy this to inventory/hosts.yml and edit. The single `objectindex_api` group
+# drives the single role in site.yml.
+
+all:
+  vars:
+    # Connect as the service user — the playbook needs no root or sudo.
+    ansible_user: objectindex
+
+    # The one knob you change to upgrade. The playbook pins the package to this
+    # git tag; bump it and re-run the playbook to upgrade.
+    objectindex_version: v0.3.2
+
+  children:
+
+    objectindex_api:
+      hosts:
+        objidx.lan:
+          # --- Required: API configuration (maps to OBJIDX_* env vars) ---
+
+          # SQLAlchemy URL of an EXISTING Postgres database. This deploy does
+          # not provision Postgres; it only verifies the DB is reachable.
+          objidx_database_url: "postgresql+psycopg2://objidx:secret@db.lan/objidx"
+
+          # Base URL of the simpler-objects server.
+          objidx_s3: "http://storage.lan:29171/"
+
+          # Allowed upload bucket names (a YAML list; the role joins it into the
+          # comma-separated form the API expects).
+          objidx_buckets:
+            - photos
+            - backups
+
+          # --- Optional knobs (defaults shown) ---
+          # objectindex_host: "0.0.0.0"
+          # objectindex_port: 29161
+          # objectindex_workers: 1

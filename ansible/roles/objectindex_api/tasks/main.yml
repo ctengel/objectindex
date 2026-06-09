@@ -1,0 +1,161 @@
+# Single combined role for the ObjectIndex API: prereq asserts, venv install,
+# DB reachability check, config, systemd user unit, enable/start.
+#
+# Prerequisites are root concerns done once out of band (OS packages, service
+# user, linger) — see ansible/README.md "Prerequisites". The asserts
+# below only verify they are in place; this role never uses become.
+
+- name: Assert python3 is available
+  ansible.builtin.command: python3 --version
+  changed_when: false
+
+- name: Assert python3 venv module is available
+  ansible.builtin.command: python3 -m venv --help
+  changed_when: false
+
+- name: Assert python3-packaging is installed (required by Ansible pip module)
+  ansible.builtin.command: python3 -c "import packaging"
+  changed_when: false
+  # If this fails, install python3-packaging via the OS package manager as root:
+  #   Fedora:  dnf install -y python3-packaging
+  #   Debian:  apt install -y python3-packaging
+
+- name: Assert loginctl linger is enabled for this user
+  ansible.builtin.stat:
+    path: "/var/lib/systemd/linger/{{ ansible_user_id }}"
+  register: _linger_stat
+  changed_when: false
+  failed_when: not _linger_stat.stat.exists
+  # If this fails, run once as root: loginctl enable-linger {{ ansible_user_id }}
+
+- name: Assert the required connection params are set in inventory
+  ansible.builtin.assert:
+    that:
+      - objidx_database_url is defined
+      - objidx_database_url | length > 0
+      - objidx_s3 is defined
+      - objidx_s3 | length > 0
+    fail_msg: "Set `objidx_database_url` and `objidx_s3` for this host in inventory."
+
+- name: Ensure config and systemd user dirs exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ objectindex_config_dir }}"
+    - "{{ objectindex_systemd_user_dir }}"
+
+# A system Python upgrade can leave the venv's interpreter symlink dangling so
+# `pip` no longer loads. Probe it and wipe a broken venv so the create task
+# below rebuilds it, instead of failing in the pip step. On a fresh host the
+# probe fails (no interpreter yet) and the removal is a harmless no-op.
+- name: Check the venv's pip is loadable
+  ansible.builtin.command: "{{ objectindex_venv }}/bin/python -m pip --version"
+  register: _venv_pip
+  changed_when: false
+  failed_when: false
+
+- name: Remove a broken venv so it gets rebuilt
+  ansible.builtin.file:
+    path: "{{ objectindex_venv }}"
+    state: absent
+  when: _venv_pip.rc != 0
+
+- name: Create the venv (idempotent — only on first run)
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ objectindex_venv }}"
+    creates: "{{ objectindex_venv }}/bin/python"
+
+- name: Install / upgrade objectindex in the venv
+  ansible.builtin.pip:
+    name: "{{ objectindex_git_url }}/archive/refs/tags/{{ objectindex_version }}.tar.gz"
+    state: present
+    virtualenv: "{{ objectindex_venv }}"
+  notify: Restart objectindex service
+
+# Active connectivity check: open a real connection and run SELECT 1 using the
+# sqlalchemy + psycopg2 already installed in the venv (no extra deps). The URL
+# is passed as an argv element, not interpolated into the -c string, so a
+# password in the URL is never expanded by the shell.
+- name: Verify the Postgres database is reachable
+  ansible.builtin.command:
+    argv:
+      - "{{ objectindex_venv }}/bin/python"
+      - "-c"
+      - "import sys; from sqlalchemy import create_engine, text; create_engine(sys.argv[1]).connect().execute(text('SELECT 1'))"
+      - "{{ objidx_database_url }}"
+  changed_when: false
+  register: _db_probe
+  failed_when: _db_probe.rc != 0
+  # If this fails, Postgres is not reachable at OBJIDX_DATABASE_URL — check the
+  # URL, that the database and role exist, and that pg_hba.conf allows this host.
+
+# Schema is the operator's responsibility — this deploy never creates or
+# migrates it. We only verify the expected tables exist, so a missing schema
+# fails here with a clear message instead of at request time. Uses sqlalchemy's
+# inspector with just the URL (no obj_idx import, so no S3/BUCKETS needed).
+- name: Verify the ObjectIndex schema (object/file tables) exists
+  ansible.builtin.command:
+    argv:
+      - "{{ objectindex_venv }}/bin/python"
+      - "-c"
+      - |
+        import sys
+        from sqlalchemy import create_engine, inspect
+        insp = inspect(create_engine(sys.argv[1]))
+        missing = [t for t in ('object', 'file') if not insp.has_table(t)]
+        sys.exit('missing tables: ' + ', '.join(missing) if missing else 0)
+      - "{{ objidx_database_url }}"
+  changed_when: false
+  register: _schema_check
+  failed_when: _schema_check.rc != 0
+  # If this fails the database is reachable but uninitialized. Create the schema
+  # ONCE, on a brand-new empty DB only, as the operator:
+  #   OBJIDX_DATABASE_URL=... OBJIDX_S3=... OBJIDX_BUCKETS=... \
+  #     {{ objectindex_venv }}/bin/python -m obj_idx.db_create
+  # WARNING: db_create drops all tables first — never run it against a DB that
+  # holds data. For an existing schema, leave it as-is.
+
+# simpler-objects (the object store at OBJIDX_S3) must be running — the API
+# proxies all uploads/downloads to it. Probe its /health endpoint so a down or
+# missing backend fails here, not at first upload. Uses the venv's requests,
+# which honors any user:pass embedded in the URL.
+- name: Verify the simpler-objects backend is reachable
+  ansible.builtin.command:
+    argv:
+      - "{{ objectindex_venv }}/bin/python"
+      - "-c"
+      - |
+        import sys, requests
+        requests.get(sys.argv[1], timeout=10).raise_for_status()
+      - "{{ objidx_s3 | regex_replace('/$', '') }}/health"
+  changed_when: false
+  register: _s3_health
+  failed_when: _s3_health.rc != 0
+  # If this fails, simpler-objects at OBJIDX_S3 is unreachable or unhealthy —
+  # start it / check OBJIDX_S3 (a 500 from /health means its object dir is
+  # inaccessible on the storage host).
+
+- name: Render the API env file
+  ansible.builtin.template:
+    src: api.env.j2
+    dest: "{{ objectindex_config_dir }}/api.env"
+    mode: "0600"
+  notify: Restart objectindex service
+
+- name: Install the systemd user unit
+  ansible.builtin.copy:
+    src: objectindex-api.service
+    dest: "{{ objectindex_systemd_user_dir }}/{{ objectindex_unit }}"
+    mode: "0644"
+  notify:
+    - Reload systemd user daemon
+    - Restart objectindex service
+
+- name: Enable and start the objectindex API
+  ansible.builtin.systemd:
+    name: "{{ objectindex_unit }}"
+    enabled: true
+    state: started
+    scope: user

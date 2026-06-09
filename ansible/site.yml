@@ -1,0 +1,28 @@
+# Top-level play for the ObjectIndex API.
+#
+# A single play, a single role (objectindex_api) — ObjectIndex's only
+# deployable component is the FastAPI API.
+#
+# The play sets XDG_RUNTIME_DIR so the `systemctl --user` (scope: user) tasks
+# and handlers can reach the service user's D-Bus instance over Ansible's
+# non-login SSH session. Without it those tasks fail with "Failed to connect to
+# bus." `ansible_user_uid` is a gathered fact (gather_facts is on by default).
+# The `| default('')` is required, not cosmetic: play-level `environment` is
+# templated for the implicit fact-gathering (setup) task too, which runs before
+# facts exist — without the default that first task fails with "ansible_user_uid
+# is undefined." `environment` is re-templated per task, so every task after
+# setup still gets the real uid.
+#
+# Deploy or upgrade (idempotent — run the whole playbook either way):
+#     ansible-playbook -i inventory/hosts.yml site.yml
+#
+# To upgrade, bump objectindex_version in the inventory and re-run. pip detects
+# the new tag, reinstalls, and notifies the restart handler; every other task is
+# a no-op when nothing changed.
+
+- name: Install and configure the ObjectIndex API
+  hosts: objectindex_api
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid | default('') }}"
+  roles:
+    - objectindex_api

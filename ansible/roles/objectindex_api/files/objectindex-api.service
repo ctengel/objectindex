@@ -1,0 +1,33 @@
+[Unit]
+Description=ObjectIndex API (FastAPI)
+Documentation=https://github.com/ctengel/objectindex
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+EnvironmentFile=%E/objectindex/api.env
+
+# Defaults; values in the env file override these.
+Environment=HOST=0.0.0.0
+Environment=PORT=29161
+Environment=WORKERS=1
+
+# Adjust the venv path with a drop-in if you installed elsewhere:
+#   systemctl --user edit objectindex-api
+# and override ExecStart.
+ExecStart=%h/venv/bin/uvicorn obj_idx.api:app --host ${HOST} --port ${PORT} --workers ${WORKERS}
+
+Restart=on-failure
+RestartSec=5s
+
+# Sandboxing (subset compatible with user units)
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=default.target

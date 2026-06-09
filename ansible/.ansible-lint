@@ -1,0 +1,12 @@
+# Ansible-lint configuration for the ansible/ deploy.
+#
+# We disable var-naming[no-role-prefix] deliberately: user-facing inventory
+# variables (objidx_database_url, objidx_s3, objidx_buckets) are kept short for
+# ergonomics, and the role is meant to be used via site.yml, not as a drop-in to
+# arbitrary external playbooks where prefix collisions would matter.
+skip_list:
+  - var-naming[no-role-prefix]
+
+# The example inventory is a template, not a real one; skip lint on it.
+exclude_paths:
+  - inventory/hosts.example.yml
