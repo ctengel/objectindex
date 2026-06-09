@@ -255,16 +255,30 @@ def get_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)):
              400: {"model": DetailResponse,
                    "description": "Cannot set both completed and deleted"},
              404: {"model": DetailResponse},
+             409: {"model": DetailResponse,
+                   "description": "Object already cleared/deleted"},
          })
 def update_object(obj_uuid: uuid.UUID,
                   payload: ObjectUpdate,
                   session: Session = Depends(get_session)):
     """Let us know an upload is completed (or deleted)"""
-    my_obj = session.get(Object, obj_uuid)
+    # Lock the row so a concurrent clear (deleted=true) and completion
+    # (completed=true) serialize: the second request sees the first's
+    # committed state and cannot produce an invalid completed+deleted object.
+    my_obj = session.exec(
+        select(Object).where(Object.uuid == obj_uuid).with_for_update()
+    ).one_or_none()
     if my_obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
     new_completed = payload.completed
     new_deleted = payload.deleted
+    if new_completed and my_obj.deleted:
+        # Upload was cleared/deleted (perhaps accidentally) but the bytes
+        # finished landing afterwards; surface the conflict instead of
+        # silently dropping the completion and orphaning the object.
+        raise HTTPException(status_code=409,
+                            detail="Object was cleared/deleted; "
+                                   "completion rejected")
     if not my_obj.completed and not my_obj.deleted:
         if new_completed and new_deleted:
             raise HTTPException(status_code=400,

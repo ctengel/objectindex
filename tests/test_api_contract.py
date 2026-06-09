@@ -417,6 +417,22 @@ def test_put_both_true_rejected(client):
     assert resp.status_code >= 400
 
 
+def test_put_completed_after_deleted_rejected(client):
+    # Clearing an upload then having the bytes finish landing must not silently
+    # drop the completion (which would orphan the object): it returns 409 and
+    # the object stays deleted/not-completed.
+    resp1, _ = _upload(client, content=b"cleared then finished")
+    obj_url = resp1.json()["upload"]["finished"]
+    assert client.put(obj_url, json={"deleted": True}).status_code == 200
+
+    resp = client.put(obj_url, json={"completed": True})
+    assert resp.status_code == 409
+
+    obj = client.get(obj_url).json()
+    assert obj["completed"] is False
+    assert obj["deleted"] is True
+
+
 def test_object_download_presigned(client):
     content = b"download body"
     chk = _checksum(content)
