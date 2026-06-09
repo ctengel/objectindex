@@ -118,6 +118,17 @@ def test_http_error_propagates():
             oi.get('object/missing/')
 
 
+def test_list_objects_by_bucket():
+    oi = ObjectIndex(BASE_URL)
+    resp = _mock_response([])
+    with patch('obj_idx.clilib.requests') as mock_req:
+        mock_req.get.return_value = resp
+        oi.list_objects('bucket1')
+    mock_req.get.assert_called_once_with(
+        'http://api.test/object/', params={'bucket': 'bucket1'}, timeout=15
+    )
+
+
 def test_search_files_returns_file_objects():
     oi = ObjectIndex(BASE_URL)
     file_dicts = [_make_file_dict('file-1', 'obj-1'), _make_file_dict('file-2', 'obj-2')]

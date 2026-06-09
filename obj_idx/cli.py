@@ -3,7 +3,9 @@
 """CLI for object index client"""
 
 import argparse
+import os
 import pathlib
+import sys
 import warnings
 from . import client
 
@@ -42,6 +44,33 @@ def _check(obj_idx, args):
             pathlib.Path(filename).unlink()
 
 
+def get_s3_base(cli_value=None):
+    """Resolve the simpler-objects base URL from --s3 or OBJIDX_S3"""
+    base = cli_value or os.environ.get('OBJIDX_S3')
+    if not base:
+        raise SystemExit("scrub requires --s3 or the OBJIDX_S3 environment variable")
+    return base if base.endswith('/') else base + '/'
+
+
+def _scrub(obj_idx, args):
+    s3_base = get_s3_base(args.s3)
+    any_error = False
+    for bucket in args.bucket:
+        try:
+            results = client.scrub_bucket(obj_idx, bucket, s3_base, check_all=args.all)
+        except client.clilib.requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                raise SystemExit(f"{bucket}: unknown bucket") from exc
+            raise
+        for result in results:
+            print(bucket, result.brief['uuid'], result.brief['key'],
+                  result.category.value,
+                  'ERROR' if result.is_error else 'WARN', result.detail)
+            if result.is_error:
+                any_error = True
+    return 1 if any_error else 0
+
+
 def cli():
     """CLI main function"""
     parser = argparse.ArgumentParser(description="Object Index client")
@@ -60,8 +89,14 @@ def cli():
     parser_check.add_argument('-r', '--rm', action='store_true')
     parser_check.add_argument('filename', nargs='+')
     parser_check.set_defaults(func=_check)
+    parser_scrub = subparsers.add_parser('scrub')
+    parser_scrub.add_argument('bucket', nargs='+')
+    parser_scrub.add_argument('--all', action='store_true')
+    parser_scrub.add_argument('--s3')
+    parser_scrub.set_defaults(func=_scrub)
     args = parser.parse_args()
-    args.func(client.get_obj_idx_env(), args)
+    rc = args.func(client.get_obj_idx_env(), args)
+    sys.exit(rc or 0)
 
 
 if __name__ == '__main__':

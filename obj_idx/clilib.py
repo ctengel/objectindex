@@ -156,6 +156,10 @@ class ObjectIndex:
         """Get all objects with given checksum"""
         return self.get("object/", params={'checksum': checksum})
 
+    def list_objects(self, bucket):
+        """List brief metadata for every object in a bucket"""
+        return self.get("object/", params={'bucket': bucket})
+
     def get_presigned(self, objid):
         """Get presigned URL for a given object"""
         # TODO merge with File.get_s3

@@ -8,7 +8,9 @@ import pathlib
 import mimetypes
 import datetime
 import warnings
-from urllib.parse import urlsplit
+from dataclasses import dataclass
+from enum import Enum
+from urllib.parse import urlsplit, urljoin
 import os
 import tempfile
 import magic
@@ -16,6 +18,7 @@ from simpler_objects.client import (
     simple_upload,
     simple_download,
     file_checksum as checksum,
+    parse_digest_header,
     ClientError,
 )
 from . import clilib
@@ -227,6 +230,109 @@ def get_obj_idx_env():
     oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
     objidx = get_obj_idx(oi_url, oi_user)
     return objidx
+
+
+def head_locator(s3_base: str, bucket: str, key: str, timeout: int = clilib.TIMEOUT):
+    """HEAD an object on the simpler-objects locator, following its 307.
+
+    Returns the raw requests.Response. 200 means present, 503 an upload is in
+    progress, 404 absent; the caller interprets these (we do not raise).
+    ``allow_redirects`` is required: the locator answers a hit with a 307 to the
+    backend, whose reply carries the ``Repr-Digest`` and ``Content-Type``.
+    """
+    url = urljoin(s3_base, f"{bucket}/{key}")
+    return clilib.requests.head(url, allow_redirects=True, timeout=timeout)
+
+
+class ScrubCategory(str, Enum):
+    """How a scrubbed object compares between ObjectIndex and simpler-objects."""
+
+    FAILED_OR_NEVER_STARTED = "failed or never started"
+    UPLOAD_IN_PROGRESS = "upload in progress"
+    BROKEN_INCOMPLETE = "complete in simpler-objects but broken/incomplete in objindex"
+    READY_FOR_REUPLOAD = "ready for re-upload-attempt"
+    MISMATCH = "mismatch in simpler-objects"
+    CTYPE_WARNING = "content-type mismatch"
+
+
+@dataclass
+class ScrubResult:
+    """One anomaly (or warning) found while scrubbing a bucket."""
+
+    category: ScrubCategory
+    brief: dict  # the ObjectBrief; carries uuid for a future --clear
+    detail: str = ""
+    is_error: bool = False  # True => contributes to a nonzero exit
+
+
+def _scrub_completed(brief: dict, s3_base: str, timeout: int) -> list[ScrubResult]:
+    """Verify a completed object actually matches in simpler-objects (--all)."""
+    resp = head_locator(s3_base, brief['bucket'], brief['key'], timeout)
+    if resp.status_code != 200:
+        return [ScrubResult(ScrubCategory.MISMATCH, brief,
+                            detail=f"HTTP {resp.status_code}", is_error=True)]
+    out = []
+    digest = parse_digest_header(resp.headers.get('Repr-Digest')
+                                 or resp.headers.get('Content-Digest'))
+    if digest is None or digest.hex() != brief['checksum']:
+        out.append(ScrubResult(
+            ScrubCategory.MISMATCH, brief,
+            detail=f"checksum {digest.hex() if digest else None} != {brief['checksum']}",
+            is_error=True))
+    clen = resp.headers.get('Content-Length')
+    if clen is not None and int(clen) != brief['obj_size']:
+        out.append(ScrubResult(ScrubCategory.MISMATCH, brief,
+                               detail=f"size {clen} != {brief['obj_size']}",
+                               is_error=True))
+    # Content-type is warn-only: the object server infers it from the key's
+    # extension and need not byte-match the stored mime.
+    ctype = (resp.headers.get('Content-Type') or '').split(';')[0].strip().lower()
+    if ctype and brief.get('mime') and ctype != brief['mime'].lower():
+        out.append(ScrubResult(ScrubCategory.CTYPE_WARNING, brief,
+                               detail=f"content-type {ctype} != {brief['mime']}",
+                               is_error=False))
+    return out
+
+
+def scrub_bucket(obj_idx: clilib.ObjectIndex,
+                 bucket: str,
+                 s3_base: str,
+                 check_all: bool = False,
+                 timeout: int = clilib.TIMEOUT) -> list[ScrubResult]:
+    """Cross-check every object in a bucket against simpler-objects.
+
+    Returns a list of anomalies/warnings (no output here). Objects that are
+    completed+deleted (and, without ``check_all``, completed+not-deleted) are
+    skipped and yield nothing; a completed object that fully matches under
+    ``check_all`` also yields nothing.
+    """
+    results = []
+    for brief in obj_idx.list_objects(bucket):
+        completed, deleted = brief['completed'], brief['deleted']
+        if completed and deleted:
+            continue
+        if not completed and deleted:
+            results.append(ScrubResult(ScrubCategory.READY_FOR_REUPLOAD, brief,
+                                       is_error=True))
+            continue
+        if not completed:  # and not deleted
+            resp = head_locator(s3_base, brief['bucket'], brief['key'], timeout)
+            if resp.status_code == 404:
+                category = ScrubCategory.FAILED_OR_NEVER_STARTED
+            elif resp.status_code == 503:
+                category = ScrubCategory.UPLOAD_IN_PROGRESS
+            else:
+                # 200 (or anything unexpected): bytes exist but the index never
+                # marked the object complete.
+                category = ScrubCategory.BROKEN_INCOMPLETE
+            results.append(ScrubResult(category, brief,
+                                       detail=f"HTTP {resp.status_code}",
+                                       is_error=True))
+            continue
+        # completed and not deleted
+        if check_all:
+            results.extend(_scrub_completed(brief, s3_base, timeout))
+    return results
 
 
 def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False) -> list[clilib.File]:

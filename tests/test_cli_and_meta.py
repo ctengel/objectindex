@@ -117,6 +117,75 @@ def test_cli_check_rm_unlinks_file():
 
 
 # ---------------------------------------------------------------------------
+# cli.get_s3_base / cli._scrub
+# ---------------------------------------------------------------------------
+
+def _scrub_result(category, is_error, key='key.txt', detail=''):
+    r = Mock()
+    r.category = category
+    r.is_error = is_error
+    r.detail = detail
+    r.brief = {'uuid': OBJ_UUID, 'key': key}
+    return r
+
+
+def test_get_s3_base_from_arg_adds_slash():
+    assert cli.get_s3_base('http://s3.test') == 'http://s3.test/'
+
+
+def test_get_s3_base_from_env(monkeypatch):
+    monkeypatch.setenv('OBJIDX_S3', 'http://env.test/')
+    assert cli.get_s3_base(None) == 'http://env.test/'
+
+
+def test_get_s3_base_missing_raises(monkeypatch):
+    monkeypatch.delenv('OBJIDX_S3', raising=False)
+    with pytest.raises(SystemExit):
+        cli.get_s3_base(None)
+
+
+def test_scrub_clean_returns_zero(capsys):
+    args = argparse.Namespace(bucket=['bucket1'], all=False, s3='http://s3.test/')
+    with patch('obj_idx.cli.client.scrub_bucket', return_value=[]):
+        rc = cli._scrub(_mock_oi(), args)
+    assert rc == 0
+
+
+def test_scrub_error_returns_one_and_prints(capsys):
+    cat = cli.client.ScrubCategory.FAILED_OR_NEVER_STARTED
+    args = argparse.Namespace(bucket=['bucket1'], all=False, s3='http://s3.test/')
+    with patch('obj_idx.cli.client.scrub_bucket',
+               return_value=[_scrub_result(cat, is_error=True)]):
+        rc = cli._scrub(_mock_oi(), args)
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert cat.value in out
+    assert 'ERROR' in out
+
+
+def test_scrub_warning_only_returns_zero(capsys):
+    cat = cli.client.ScrubCategory.CTYPE_WARNING
+    args = argparse.Namespace(bucket=['bucket1'], all=True, s3='http://s3.test/')
+    with patch('obj_idx.cli.client.scrub_bucket',
+               return_value=[_scrub_result(cat, is_error=False)]):
+        rc = cli._scrub(_mock_oi(), args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert 'WARN' in out
+
+
+def test_scrub_unknown_bucket_404_is_fatal():
+    import requests
+    err = requests.exceptions.HTTPError()
+    err.response = Mock(status_code=404)
+    args = argparse.Namespace(bucket=['nope'], all=False, s3='http://s3.test/')
+    with patch('obj_idx.cli.client.scrub_bucket', side_effect=err):
+        with pytest.raises(SystemExit) as excinfo:
+            cli._scrub(_mock_oi(), args)
+    assert 'unknown bucket' in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
 # lpm2dict
 # ---------------------------------------------------------------------------
 
