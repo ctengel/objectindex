@@ -299,6 +299,40 @@ def test_dlpmetadata_add_lpm_full():
     assert media == 'vid-SomeChannel-abc123'
 
 
+def test_dlpmetadata_add_tags_merges_into_extra():
+    meta = DLPMetaData(from_dict=MINIMAL_DATA)
+    meta.add_tags({'show': 'My Show', 'season': '2'})
+    extra = meta.export_extra()
+    assert extra['show'] == 'My Show'
+    assert extra['season'] == '2'
+
+
+def test_dlpmetadata_add_tags_returns_and_accumulates():
+    meta = DLPMetaData(from_dict=MINIMAL_DATA)
+    assert meta.add_tags({'a': '1'}) == {'a': '1'}
+    assert meta.add_tags({'b': '2'}) == {'a': '1', 'b': '2'}
+
+
+def test_dlpmetadata_always_tags_uploader_without_lpm():
+    meta = DLPMetaData(from_dict=MINIMAL_DATA)
+    # No add_lpm call — uploader must still land as a flat searchable tag
+    extra = meta.export_extra()
+    assert extra['ytdl-uploader'] == 'SomeChannel'
+    assert 'lpm-per' not in extra
+
+
+def test_dlpmetadata_uploader_tag_prefers_creator():
+    data = {**MINIMAL_DATA, 'creator': 'RealName'}
+    meta = DLPMetaData(from_dict=data)
+    assert meta.export_extra()['ytdl-uploader'] == 'RealName'
+
+
+def test_dlpmetadata_caller_tags_override_derived():
+    meta = DLPMetaData(from_dict=MINIMAL_DATA)
+    meta.add_tags({'ytdl-uploader': 'Override'})
+    assert meta.export_extra()['ytdl-uploader'] == 'Override'
+
+
 def test_dlpmetadata_requires_one_source():
     with pytest.raises(AssertionError):
         DLPMetaData()

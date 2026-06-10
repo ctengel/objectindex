@@ -39,6 +39,7 @@ class DLPMetaData:
     ijfn: pathlib.Path = None
     partial: bool = False
     lpm: tuple = (None, None, None)
+    tags: dict = None
 
     def __init__(self,
                  from_dict: dict = None,
@@ -52,6 +53,7 @@ class DLPMetaData:
         else:
             self.data = from_dict.copy()
         self.partial = partial
+        self.tags = {}
 
     def get_url(self):
         """Get webpage pseudo URL"""
@@ -111,12 +113,22 @@ class DLPMetaData:
         self.lpm = library, person, media
         return self.lpm
 
+    def add_tags(self, tags: dict):
+        """Add arbitrary searchable key/value tags to the metadata"""
+        self.tags.update(tags)
+        return self.tags
+
     def export_extra(self):
         """Get dictionary of all known extra metadata"""
         extra = {'ytdl-info': self.data,
                  'ytdl-extractor': self.data['extractor_key'].lower(),
                  'ytdl-id': f"{self.data['extractor_key'].lower()} {self.data['id']}"}
         extra.update(lpm2dict(*self.lpm))
+        # Always tag the uploader, even when it's not used as an lpm-per
+        person = self.data.get('creator') or self.data.get('uploader')
+        if person:
+            extra['ytdl-uploader'] = person
+        extra.update(self.tags)
         return extra
 
     def get_mtime(self):

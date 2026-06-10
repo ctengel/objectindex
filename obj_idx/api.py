@@ -47,7 +47,7 @@ def escape_like_prefix(value):
 
 app = FastAPI(
     title="Object Index API",
-    version="0.3.4",
+    version="0.3.5",
     description="API for storing info about Objects",
 )
 
