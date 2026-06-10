@@ -24,7 +24,7 @@ from simpler_objects.client import (
 from . import clilib
 from .common import is_valid_url, reconcile_mime_ext, get_mime
 
-SW_STRING = 'OIC-0.3.3'
+SW_STRING = 'OIC-0.3.4'
 
 def get_mime_data(file_path: pathlib.Path) -> str:
     """Determine mime type based on file data"""
@@ -221,18 +221,17 @@ def upload(filename: str,
                         file_mime=file_mime)
 
 
-def get_obj_idx(url, user):
+def get_obj_idx(url, user, sw=None):
     """Get ObjectIndex object"""
     # TODO add in user and auth
-    return clilib.ObjectIndex(url, host=socket.gethostname(), sw=SW_STRING, user=user)
+    return clilib.ObjectIndex(url, host=socket.gethostname(), sw=sw or SW_STRING, user=user)
 
 
-def get_obj_idx_env():
+def get_obj_idx_env(sw=None):
     """Get objidx from environment"""
     oi_url = os.environ['OBJIDX_URL']
     oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
-    objidx = get_obj_idx(oi_url, oi_user)
-    return objidx
+    return get_obj_idx(oi_url, oi_user, sw=sw)
 
 
 def head_locator(s3_base: str, bucket: str, key: str, timeout: int = clilib.TIMEOUT):
