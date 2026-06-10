@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
@@ -47,7 +47,7 @@ def escape_like_prefix(value):
 
 app = FastAPI(
     title="Object Index API",
-    version="0.3.3",
+    version="0.3.4",
     description="API for storing info about Objects",
 )
 
@@ -59,21 +59,30 @@ def get_dl_url(objobj: Object) -> str:
 
 @app.post("/upload/", status_code=201, response_model=UploadResult,
           responses={
+              200: {"model": UploadResult,
+                    "description": "Object already present; download URL returned"},
+              201: {"model": UploadResult,
+                    "description": "New object recorded; PUT the bytes to the "
+                                   "returned upload URL"},
               400: {"model": DetailResponse,
-                    "description": "Invalid checksum"},
+                    "description": "Invalid checksum, object size mismatch, or "
+                                   "direct/partial status mismatch"},
               409: {"model": ConflictResponse,
-                    "description": "Object size mismatch, an upload of an object "
-                                   "with the same checksum may currently be in "
-                                   "progress, the object was previously deleted, "
-                                   "or the existing file's direct/partial status "
-                                   "does not match"},
+                    "description": "An upload of an object with the same "
+                                   "checksum may currently be in progress / "
+                                   "failed"},
+              410: {"model": DetailResponse,
+                    "description": "Object was previously deleted"},
               404: {"model": DetailResponse,
                     "description": "Unknown bucket"}
           })
-def upload(payload: UploadRequest, session: Session = Depends(get_session)):
+def upload(payload: UploadRequest,
+           response: Response,
+           session: Session = Depends(get_session)):
     """Upload or get info"""
-    # TODO consider raise HTTPException instead of JSONResponse
-    #      (currently differs to return object ID on 409)
+    # NOTE 409 (in-progress) keeps a JSONResponse so it can carry the object ID
+    #      an admin needs to scrub the failed upload; every other error uses
+    #      HTTPException since there is no semi-automated resolution path.
     exists = False
     in_progress = False
     try:
@@ -88,9 +97,9 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     if my_obj:
         exists = True
         if my_obj.obj_size != payload.obj_size:
-            return JSONResponse(status_code=409,
-                                content={"message": "Object size mismatch",
-                                         "object_uuid": str(my_obj.uuid)})
+            raise HTTPException(
+                status_code=400,
+                detail=f"Object size mismatch (existing object {my_obj.uuid})")
         if not my_obj.completed:
             # Upload was initiated before but not finished
             if not my_obj.deleted:
@@ -103,9 +112,10 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
                 my_obj.deleted = False
                 exists = False
         if my_obj.deleted:
-            # Object was intentionally deleted; 409 here, 410 for GET data
-            return JSONResponse(status_code=409, content={"message": "object previously deleted",
-                                                          "object_uuid": str(my_obj.uuid)})
+            # Object was intentionally deleted; 410 here and for GET data
+            raise HTTPException(
+                status_code=410,
+                detail=f"object previously deleted (existing object {my_obj.uuid})")
         if payload.mime and not my_obj.mime:
             my_obj.mime = payload.mime
         if payload.extra_object and not my_obj.extra:
@@ -126,9 +136,10 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     if my_file:
         # NOTE: We do not assert "exists" here to allow retries of cleared failed uploads
         if payload.direct != my_file.direct or payload.partial != my_file.partial:
-            return JSONResponse(status_code=409, content={"message": "partial/direct status does not match existing file",
-                                                          "file_uuid": str(my_file.uuid),
-                                                          "object_uuid": str(my_obj.uuid)})
+            raise HTTPException(
+                status_code=400,
+                detail=f"partial/direct status does not match existing file "
+                       f"{my_file.uuid} (object {my_obj.uuid})")
         if payload.mtime and not my_file.mtime:
             my_file.mtime = payload.mtime
         if payload.extra_file and not my_file.extra:
@@ -158,10 +169,11 @@ def upload(payload: UploadRequest, session: Session = Depends(get_session)):
     result = {"file": my_file, "exists": exists}
     if exists:
         result["download"] = get_dl_url(my_obj)
-    else:
-        # NOTE the s3 URL is NOW really a URL
-        result["upload"] = {"s3": get_dl_url(my_obj),
-                            "finished": f"/object/{my_obj.uuid}/"}
+        response.status_code = 200
+        return result
+    # NOTE the s3 URL is NOW really a URL (decorator default status_code=201)
+    result["upload"] = {"s3": get_dl_url(my_obj),
+                        "finished": f"/object/{my_obj.uuid}/"}
     return result
 
 

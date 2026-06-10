@@ -148,10 +148,12 @@ class DetailResponse(BaseModel):
 
 
 class ConflictResponse(BaseModel):
-    """409 from ``POST /upload/`` — size mismatch, an upload of the same checksum
-    may be in progress, the object was previously deleted, or an existing file's
-    direct/partial status does not match. Carries the existing ``object_uuid``
-    (and ``file_uuid`` for the direct/partial-mismatch case)."""
+    """409 from ``POST /upload/`` — an upload of an object with the same checksum
+    may currently be in progress (or failed and not yet scrubbed). Carries the
+    existing ``object_uuid`` (the key an admin needs to clear it) and the
+    ``file_uuid`` recorded for this source URL. Other contradictions are now
+    plain ``HTTPException`` responses (400 size/direct-partial mismatch, 410
+    deleted)."""
 
     message: str
     object_uuid: str

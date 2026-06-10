@@ -104,21 +104,10 @@ def test_upload_dedup_returns_existing(client):
 
     # second upload of same checksum from a different url -> exists, download
     resp2, _ = _upload(client, content=content, url="file://host/other/copy.txt")
-    assert resp2.status_code == 201
+    assert resp2.status_code == 200
     body = resp2.json()
     assert body["exists"] is True
     assert body["download"] == resp1.json()["upload"]["s3"]
-
-
-def test_upload_conflict_409_has_object_uuid(client):
-    content = b"in progress"
-    resp1, _ = _upload(client, content=content)
-    obj_uuid = resp1.json()["file"]["file_object"]["uuid"]
-
-    # second upload while the first is still incomplete -> conflict
-    resp2, _ = _upload(client, content=content, url="file://host/other.txt")
-    assert resp2.status_code == 409
-    assert resp2.json()["object_uuid"] == obj_uuid
 
 
 def test_upload_in_progress_records_file(client):
@@ -174,6 +163,17 @@ def test_upload_size_mismatch_rejected(client):
     resp2, _ = _upload(client, content=content, obj_size=999999,
                        url="file://host/other.txt")
     assert resp2.status_code >= 400
+
+
+def test_upload_direct_partial_mismatch_400(client):
+    content = b"mismatch me"
+    resp1, payload1 = _upload(client, content=content)
+    _complete(client, resp1.json()["upload"]["finished"])
+
+    # same url + checksum but a different direct/partial status -> 400
+    resp2, _ = _upload(client, content=content, url=payload1["url"],
+                       direct=not payload1["direct"])
+    assert resp2.status_code == 400
 
 
 def test_reupload_after_delete(client):

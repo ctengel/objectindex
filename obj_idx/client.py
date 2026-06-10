@@ -108,6 +108,9 @@ def upload_core(filename: str,
                                           direct=direct,
                                           partial=partial)
     except clilib.requests.HTTPError as e:
+        # Only 409 (upload in progress / not-yet-scrubbed failure) is retriable:
+        # warn and skip so a batch keeps going. 400 (size/direct-partial
+        # mismatch) and 410 (deleted) have no easy fix, so let them propagate.
         if e.response.status_code != 409:
             raise e
         conflict = e.response.json()
