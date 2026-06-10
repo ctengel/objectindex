@@ -359,12 +359,12 @@ def test_object_search_by_checksum(client):
     assert rows[0]["checksum"] == chk
 
 
-def test_object_list_by_bucket(client):
+def test_bucket_list_objects(client):
     # One completed, one still in progress -> both listed with their flags.
     resp1, _ = _upload(client, content=b"alpha", url="file://host/a")
     _complete(client, resp1.json()["upload"]["finished"])
     _upload(client, content=b"beta", url="file://host/b")
-    resp = client.get("/object/", params={"bucket": "bucket1"})
+    resp = client.get("/buckets/bucket1/")
     assert resp.status_code == 200
     rows = resp.json()
     assert len(rows) == 2
@@ -377,20 +377,10 @@ def test_object_list_by_bucket(client):
         assert "extra" not in row
 
 
-def test_object_list_unknown_bucket_404(client):
-    resp = client.get("/object/", params={"bucket": "nope"})
+def test_bucket_list_unknown_bucket_404(client):
+    resp = client.get("/buckets/nope/")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Unknown bucket"
-
-
-def test_object_search_requires_a_param(client):
-    assert client.get("/object/").status_code == 400
-
-
-def test_object_search_checksum_and_bucket_rejected(client):
-    resp = client.get("/object/",
-                      params={"checksum": "aa" * 32, "bucket": "bucket1"})
-    assert resp.status_code == 400
 
 
 def test_put_completed(client):

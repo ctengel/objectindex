@@ -158,7 +158,7 @@ class ObjectIndex:
 
     def list_objects(self, bucket):
         """List brief metadata for every object in a bucket"""
-        return self.get("object/", params={'bucket': bucket})
+        return self.get(f"buckets/{bucket}/")
 
     def get_presigned(self, objid):
         """Get presigned URL for a given object"""

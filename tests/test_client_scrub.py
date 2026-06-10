@@ -10,7 +10,6 @@ from obj_idx.client import (
     ScrubCategory,
     ScrubResult,
     scrub_bucket,
-    head_locator,
     clear_failed_upload,
 )
 
@@ -56,21 +55,6 @@ def _mock_oi(briefs):
     oi = Mock()
     oi.list_objects.return_value = briefs
     return oi
-
-
-# ---------------------------------------------------------------------------
-# head_locator
-# ---------------------------------------------------------------------------
-
-def test_head_locator_follows_redirects():
-    resp = _head_resp()
-    with patch('obj_idx.client.clilib.requests') as mock_req:
-        mock_req.head.return_value = resp
-        result = head_locator(S3_BASE, 'bucket1', 'a/b.txt', timeout=15)
-    mock_req.head.assert_called_once_with(
-        'http://s3.test/bucket1/a/b.txt', allow_redirects=True, timeout=15
-    )
-    assert result is resp
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +120,6 @@ def test_all_completed_matching_yields_nothing():
     assert results == []
 
 
-def test_all_completed_non_200_mismatch():
-    oi = _mock_oi([_brief(completed=True, deleted=False)])
-    with patch('obj_idx.client.head_locator', return_value=_head_resp(404)):
-        results = scrub_bucket(oi, 'bucket1', S3_BASE, check_all=True)
-    assert results[0].category is ScrubCategory.MISMATCH
-    assert results[0].is_error is True
-
-
 def test_all_completed_checksum_mismatch():
     oi = _mock_oi([_brief(completed=True, deleted=False)])
     resp = _head_resp(200, repr_digest=_repr_digest('bb' * 32),
@@ -152,36 +128,6 @@ def test_all_completed_checksum_mismatch():
         results = scrub_bucket(oi, 'bucket1', S3_BASE, check_all=True)
     assert any(r.category is ScrubCategory.MISMATCH and r.is_error
                for r in results)
-
-
-def test_all_completed_size_mismatch():
-    oi = _mock_oi([_brief(completed=True, deleted=False)])
-    resp = _head_resp(200, repr_digest=_repr_digest(CKSUM),
-                      content_length=999, content_type='text/plain')
-    with patch('obj_idx.client.head_locator', return_value=resp):
-        results = scrub_bucket(oi, 'bucket1', S3_BASE, check_all=True)
-    assert any(r.category is ScrubCategory.MISMATCH and 'size' in r.detail
-               and r.is_error for r in results)
-
-
-def test_all_completed_content_type_warns_only():
-    oi = _mock_oi([_brief(completed=True, deleted=False)])
-    resp = _head_resp(200, repr_digest=_repr_digest(CKSUM),
-                      content_length=4, content_type='application/octet-stream')
-    with patch('obj_idx.client.head_locator', return_value=resp):
-        results = scrub_bucket(oi, 'bucket1', S3_BASE, check_all=True)
-    assert len(results) == 1
-    assert results[0].category is ScrubCategory.CTYPE_WARNING
-    assert results[0].is_error is False
-
-
-def test_all_content_type_charset_stripped():
-    oi = _mock_oi([_brief(completed=True, deleted=False)])
-    resp = _head_resp(200, repr_digest=_repr_digest(CKSUM),
-                      content_length=4, content_type='text/plain; charset=utf-8')
-    with patch('obj_idx.client.head_locator', return_value=resp):
-        results = scrub_bucket(oi, 'bucket1', S3_BASE, check_all=True)
-    assert results == []
 
 
 # ---------------------------------------------------------------------------

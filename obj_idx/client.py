@@ -24,7 +24,7 @@ from simpler_objects.client import (
 from . import clilib
 from .common import is_valid_url, reconcile_mime_ext, get_mime
 
-SW_STRING = 'OIC-0.3.2'
+SW_STRING = 'OIC-0.3.3'
 
 def get_mime_data(file_path: pathlib.Path) -> str:
     """Determine mime type based on file data"""

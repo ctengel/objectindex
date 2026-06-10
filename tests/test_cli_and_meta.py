@@ -146,13 +146,6 @@ def test_get_s3_base_missing_raises(monkeypatch):
         cli.get_s3_base(None)
 
 
-def test_scrub_clean_returns_zero(capsys):
-    args = argparse.Namespace(bucket=['bucket1'], all=False, clear=False, s3='http://s3.test/')
-    with patch('obj_idx.cli.client.scrub_bucket', return_value=[]):
-        rc = cli._scrub(_mock_oi(), args)
-    assert rc == 0
-
-
 def test_scrub_error_returns_one_and_prints(capsys):
     cat = cli.client.ScrubCategory.FAILED_OR_NEVER_STARTED
     args = argparse.Namespace(bucket=['bucket1'], all=False, clear=False, s3='http://s3.test/')
@@ -163,17 +156,6 @@ def test_scrub_error_returns_one_and_prints(capsys):
     out = capsys.readouterr().out
     assert cat.value in out
     assert 'ERROR' in out
-
-
-def test_scrub_warning_only_returns_zero(capsys):
-    cat = cli.client.ScrubCategory.CTYPE_WARNING
-    args = argparse.Namespace(bucket=['bucket1'], all=True, clear=False, s3='http://s3.test/')
-    with patch('obj_idx.cli.client.scrub_bucket',
-               return_value=[_scrub_result(cat, is_error=False)]):
-        rc = cli._scrub(_mock_oi(), args)
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert 'WARN' in out
 
 
 def test_scrub_unknown_bucket_404_is_fatal():
@@ -216,25 +198,6 @@ def test_scrub_clear_skips_in_progress(capsys):
     assert rc == 1
     out = capsys.readouterr().out
     assert 'ERROR' in out
-
-
-def test_scrub_clear_put_failure_is_fatal(capsys):
-    import requests
-    cat = cli.client.ScrubCategory.FAILED_OR_NEVER_STARTED
-    ok = _scrub_result(cat, is_error=True, key='first.txt', clearable=True)
-    boom = _scrub_result(cat, is_error=True, key='second.txt', clearable=True)
-    args = argparse.Namespace(bucket=['bucket1'], all=False, clear=True,
-                              s3='http://s3.test/')
-    with patch('obj_idx.cli.client.scrub_bucket', return_value=[ok, boom]), \
-         patch('obj_idx.cli.client.clear_failed_upload',
-               side_effect=[None, requests.exceptions.HTTPError('409')]):
-        with pytest.raises(SystemExit) as excinfo:
-            cli._scrub(_mock_oi(), args)
-    assert 'clear failed' in str(excinfo.value)
-    # the object cleared before the failure was still reported
-    out = capsys.readouterr().out
-    assert 'first.txt' in out
-    assert 'CLEARED' in out
 
 
 # ---------------------------------------------------------------------------

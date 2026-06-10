@@ -125,7 +125,7 @@ def test_list_objects_by_bucket():
         mock_req.get.return_value = resp
         oi.list_objects('bucket1')
     mock_req.get.assert_called_once_with(
-        'http://api.test/object/', params={'bucket': 'bucket1'}, timeout=15
+        'http://api.test/buckets/bucket1/', params=None, timeout=15
     )
 
 
