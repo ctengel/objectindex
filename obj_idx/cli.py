@@ -63,9 +63,21 @@ def _scrub(obj_idx, args):
                 raise SystemExit(f"{bucket}: unknown bucket") from exc
             raise
         for result in results:
+            # Interleave clearing with printing so every object cleared before a
+            # later fatal failure is still reported -- the operator needs that
+            # list to re-upload.
+            if args.clear and result.clearable:
+                try:
+                    client.clear_failed_upload(obj_idx, result.brief)
+                except client.clilib.requests.HTTPError as exc:
+                    raise SystemExit(
+                        f"{bucket} {result.brief['uuid']}: clear failed: {exc}"
+                    ) from exc
+                result.cleared = True
+            status = ('CLEARED' if result.cleared
+                      else 'ERROR' if result.is_error else 'WARN')
             print(bucket, result.brief['uuid'], result.brief['key'],
-                  result.category.value,
-                  'ERROR' if result.is_error else 'WARN', result.detail)
+                  result.category.value, status, result.detail)
             if result.is_error:
                 any_error = True
     return 1 if any_error else 0
@@ -92,6 +104,7 @@ def cli():
     parser_scrub = subparsers.add_parser('scrub')
     parser_scrub.add_argument('bucket', nargs='+')
     parser_scrub.add_argument('--all', action='store_true')
+    parser_scrub.add_argument('--clear', action='store_true')
     parser_scrub.add_argument('--s3')
     parser_scrub.set_defaults(func=_scrub)
     args = parser.parse_args()

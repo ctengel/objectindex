@@ -129,6 +129,18 @@ def test_list_objects_by_bucket():
     )
 
 
+def test_put_object_puts_deleted():
+    oi = ObjectIndex(BASE_URL)
+    resp = _mock_response({'uuid': OBJ_UUID, 'deleted': True})
+    with patch('obj_idx.clilib.requests') as mock_req:
+        mock_req.put.return_value = resp
+        result = oi.put_object(OBJ_UUID, {'deleted': True})
+    mock_req.put.assert_called_once_with(
+        f'http://api.test/object/{OBJ_UUID}/', json={'deleted': True}, timeout=15
+    )
+    assert result == {'uuid': OBJ_UUID, 'deleted': True}
+
+
 def test_search_files_returns_file_objects():
     oi = ObjectIndex(BASE_URL)
     file_dicts = [_make_file_dict('file-1', 'obj-1'), _make_file_dict('file-2', 'obj-2')]

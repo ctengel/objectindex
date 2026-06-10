@@ -341,7 +341,7 @@ directory isn't accidentally committed.)
 
 ### Failed upload
 
-Failed upload must be first cleared by PUT/PATCHing the object `/object/<object-uuid>/` with `{"deleted": true}` to signify that upload has stopped.
+Failed upload must be first cleared by PUT/PATCHing the object `/object/<object-uuid>/` with `{"deleted": true}` to signify that upload has stopped. `obj-idx-client scrub --clear <bucket>` automates this for every failed upload it finds (bytes absent, or present but never registered); uploads still in progress (HEAD 503) are skipped and need an object-store scrub first.
 
 Essentially, the lifecycle state machine of an object looks something like this:
 1. Initial POST upload - new status (completed: false; deleted: false) - assumed upload to object store to initiate shortly - subsequent upload attempts will fail

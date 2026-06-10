@@ -120,11 +120,13 @@ def test_cli_check_rm_unlinks_file():
 # cli.get_s3_base / cli._scrub
 # ---------------------------------------------------------------------------
 
-def _scrub_result(category, is_error, key='key.txt', detail=''):
+def _scrub_result(category, is_error, key='key.txt', detail='', clearable=False):
     r = Mock()
     r.category = category
     r.is_error = is_error
     r.detail = detail
+    r.clearable = clearable
+    r.cleared = False
     r.brief = {'uuid': OBJ_UUID, 'key': key}
     return r
 
@@ -145,7 +147,7 @@ def test_get_s3_base_missing_raises(monkeypatch):
 
 
 def test_scrub_clean_returns_zero(capsys):
-    args = argparse.Namespace(bucket=['bucket1'], all=False, s3='http://s3.test/')
+    args = argparse.Namespace(bucket=['bucket1'], all=False, clear=False, s3='http://s3.test/')
     with patch('obj_idx.cli.client.scrub_bucket', return_value=[]):
         rc = cli._scrub(_mock_oi(), args)
     assert rc == 0
@@ -153,7 +155,7 @@ def test_scrub_clean_returns_zero(capsys):
 
 def test_scrub_error_returns_one_and_prints(capsys):
     cat = cli.client.ScrubCategory.FAILED_OR_NEVER_STARTED
-    args = argparse.Namespace(bucket=['bucket1'], all=False, s3='http://s3.test/')
+    args = argparse.Namespace(bucket=['bucket1'], all=False, clear=False, s3='http://s3.test/')
     with patch('obj_idx.cli.client.scrub_bucket',
                return_value=[_scrub_result(cat, is_error=True)]):
         rc = cli._scrub(_mock_oi(), args)
@@ -165,7 +167,7 @@ def test_scrub_error_returns_one_and_prints(capsys):
 
 def test_scrub_warning_only_returns_zero(capsys):
     cat = cli.client.ScrubCategory.CTYPE_WARNING
-    args = argparse.Namespace(bucket=['bucket1'], all=True, s3='http://s3.test/')
+    args = argparse.Namespace(bucket=['bucket1'], all=True, clear=False, s3='http://s3.test/')
     with patch('obj_idx.cli.client.scrub_bucket',
                return_value=[_scrub_result(cat, is_error=False)]):
         rc = cli._scrub(_mock_oi(), args)
@@ -178,11 +180,61 @@ def test_scrub_unknown_bucket_404_is_fatal():
     import requests
     err = requests.exceptions.HTTPError()
     err.response = Mock(status_code=404)
-    args = argparse.Namespace(bucket=['nope'], all=False, s3='http://s3.test/')
+    args = argparse.Namespace(bucket=['nope'], all=False, clear=False, s3='http://s3.test/')
     with patch('obj_idx.cli.client.scrub_bucket', side_effect=err):
         with pytest.raises(SystemExit) as excinfo:
             cli._scrub(_mock_oi(), args)
     assert 'unknown bucket' in str(excinfo.value)
+
+
+def test_scrub_clear_clears_and_prints_cleared(capsys):
+    cat = cli.client.ScrubCategory.FAILED_OR_NEVER_STARTED
+    result = _scrub_result(cat, is_error=True, clearable=True)
+    args = argparse.Namespace(bucket=['bucket1'], all=False, clear=True,
+                              s3='http://s3.test/')
+    oi = _mock_oi()
+    with patch('obj_idx.cli.client.scrub_bucket', return_value=[result]), \
+         patch('obj_idx.cli.client.clear_failed_upload') as mock_clear:
+        rc = cli._scrub(oi, args)
+    mock_clear.assert_called_once_with(oi, result.brief)
+    assert result.cleared is True
+    out = capsys.readouterr().out
+    assert 'CLEARED' in out
+    # re-upload still needed, so the run is nonzero
+    assert rc == 1
+
+
+def test_scrub_clear_skips_in_progress(capsys):
+    cat = cli.client.ScrubCategory.UPLOAD_IN_PROGRESS
+    result = _scrub_result(cat, is_error=True, clearable=False)
+    args = argparse.Namespace(bucket=['bucket1'], all=False, clear=True,
+                              s3='http://s3.test/')
+    with patch('obj_idx.cli.client.scrub_bucket', return_value=[result]), \
+         patch('obj_idx.cli.client.clear_failed_upload') as mock_clear:
+        rc = cli._scrub(_mock_oi(), args)
+    mock_clear.assert_not_called()
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'ERROR' in out
+
+
+def test_scrub_clear_put_failure_is_fatal(capsys):
+    import requests
+    cat = cli.client.ScrubCategory.FAILED_OR_NEVER_STARTED
+    ok = _scrub_result(cat, is_error=True, key='first.txt', clearable=True)
+    boom = _scrub_result(cat, is_error=True, key='second.txt', clearable=True)
+    args = argparse.Namespace(bucket=['bucket1'], all=False, clear=True,
+                              s3='http://s3.test/')
+    with patch('obj_idx.cli.client.scrub_bucket', return_value=[ok, boom]), \
+         patch('obj_idx.cli.client.clear_failed_upload',
+               side_effect=[None, requests.exceptions.HTTPError('409')]):
+        with pytest.raises(SystemExit) as excinfo:
+            cli._scrub(_mock_oi(), args)
+    assert 'clear failed' in str(excinfo.value)
+    # the object cleared before the failure was still reported
+    out = capsys.readouterr().out
+    assert 'first.txt' in out
+    assert 'CLEARED' in out
 
 
 # ---------------------------------------------------------------------------

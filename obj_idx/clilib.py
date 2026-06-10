@@ -133,8 +133,8 @@ class ObjectIndex:
         return fileobj
 
     def put_object(self, object_uuid: uuid.UUID, info: dict):
-        """PUT/PATCH an object"""
-        # TODO implement
+        """PUT/PATCH an object (e.g. {"completed": True} or {"deleted": True})"""
+        return self.put(f"object/{object_uuid}/", json=info)
 
     def search_files(self, params):
         """Search for files with given parameters"""

@@ -3,8 +3,16 @@
 import base64
 from unittest.mock import Mock, patch
 
+import pytest
+
 from obj_idx import client
-from obj_idx.client import ScrubCategory, scrub_bucket, head_locator
+from obj_idx.client import (
+    ScrubCategory,
+    ScrubResult,
+    scrub_bucket,
+    head_locator,
+    clear_failed_upload,
+)
 
 S3_BASE = 'http://s3.test/'
 CKSUM = 'aa' * 32  # lowercase hex sha-256
@@ -174,3 +182,38 @@ def test_all_content_type_charset_stripped():
     with patch('obj_idx.client.head_locator', return_value=resp):
         results = scrub_bucket(oi, 'bucket1', S3_BASE, check_all=True)
     assert results == []
+
+
+# ---------------------------------------------------------------------------
+# ScrubResult.clearable
+# ---------------------------------------------------------------------------
+
+def test_clearable_categories():
+    clearable = {ScrubCategory.FAILED_OR_NEVER_STARTED,
+                 ScrubCategory.BROKEN_INCOMPLETE}
+    for cat in ScrubCategory:
+        result = ScrubResult(cat, _brief(completed=False, deleted=False))
+        assert result.clearable is (cat in clearable)
+
+
+# ---------------------------------------------------------------------------
+# clear_failed_upload
+# ---------------------------------------------------------------------------
+
+def test_clear_failed_upload_puts_deleted():
+    oi = Mock()
+    oi.put_object.return_value = {'uuid': 'obj-uuid', 'deleted': True}
+    brief = _brief(completed=False, deleted=False)
+    result = clear_failed_upload(oi, brief)
+    oi.put_object.assert_called_once_with('obj-uuid', {'deleted': True})
+    assert result['deleted'] is True
+
+
+def test_clear_failed_upload_raises_when_not_deleted():
+    # The object completed between our HEAD and the PUT: API returns it
+    # unchanged (deleted False) rather than deleting it.
+    oi = Mock()
+    oi.put_object.return_value = {'uuid': 'obj-uuid', 'completed': True,
+                                  'deleted': False}
+    with pytest.raises(client.clilib.requests.HTTPError):
+        clear_failed_upload(oi, _brief(completed=False, deleted=False))

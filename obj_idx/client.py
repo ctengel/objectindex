@@ -260,9 +260,38 @@ class ScrubResult:
     """One anomaly (or warning) found while scrubbing a bucket."""
 
     category: ScrubCategory
-    brief: dict  # the ObjectBrief; carries uuid for a future --clear
+    brief: dict  # the ObjectBrief; carries uuid so --clear can act
     detail: str = ""
     is_error: bool = False  # True => contributes to a nonzero exit
+    cleared: bool = False  # set once --clear's PUT deleted=True succeeds
+
+    @property
+    def clearable(self) -> bool:
+        """Whether ``--clear`` may auto-delete this failed upload.
+
+        Only an incomplete object whose bytes are absent (404) or present but
+        unregistered (307/200) is safe to clear. 503 (upload in progress) needs
+        a simpler-objects scrub first; READY_FOR_REUPLOAD is already deleted;
+        MISMATCH/CTYPE_WARNING concern completed objects.
+        """
+        return self.category in (ScrubCategory.FAILED_OR_NEVER_STARTED,
+                                 ScrubCategory.BROKEN_INCOMPLETE)
+
+
+def clear_failed_upload(obj_idx: clilib.ObjectIndex, brief: dict) -> dict:
+    """PUT deleted=True for a failed upload, readying it for re-upload.
+
+    Returns the updated object. Raises on any HTTP failure (incl. 409) so the
+    caller can treat it as fatal. Also raises if the object came back not
+    deleted: the API refuses to delete an object that *completed* between our
+    HEAD and this PUT (returning it unchanged), and we must not claim a clear
+    that did not happen.
+    """
+    updated = obj_idx.put_object(brief['uuid'], {"deleted": True})
+    if not updated.get('deleted'):
+        raise clilib.requests.HTTPError(
+            f"object {brief['uuid']} not deleted (completed in the meantime?)")
+    return updated
 
 
 def _scrub_completed(brief: dict, s3_base: str, timeout: int) -> list[ScrubResult]:
