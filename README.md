@@ -265,6 +265,42 @@ delete from file using object where file.obj_uuid=object.uuid and object.bucket=
 objidx1d=> delete from object where bucket='old';
 ```
 
+## Backup and Restore
+
+The index database can be backed up *into ObjectIndex itself*: `scripts/backup.py`
+runs `pg_dump`, gzips the plain-SQL dump, uploads it as an ordinary object, and
+prints the simpler-objects URL of the stored dump.
+
+```bash
+OBJIDX_URL=http://localhost:8000/ OBJIDX_AUTH=username \
+python3 scripts/backup.py -b bucket1 postgresql:///objidx
+# ...prints: http://user:pass@host:9000/bucket1/<sha256>-objidx-....sql.gz
+```
+
+It needs the client env vars (`OBJIDX_URL`/`OBJIDX_AUTH`) and takes a native
+libpq database URL as its argument (e.g. `postgresql:///objidx` — *not* the
+SQLAlchemy `postgresql+psycopg2://` form used by `OBJIDX_DATABASE_URL`). The
+file is tagged `extra={"backup": "objectindex"}` so backups are easy to find
+later.
+
+Restoral is a **bootstrap** step and deliberately does *not* use ObjectIndex —
+at restore time the OI database is exactly what you're rebuilding. `scripts/restore.sh`
+fetches the dump straight from simpler-objects (or a local file) with `curl` and
+loads it into an **empty** Postgres database; it needs only `curl` and
+`postgresql-client`, not the `objectindex` package. The plain dump carries the
+schema, so `obj_idx.db_create` is not needed.
+
+```bash
+createdb objidx_restore
+scripts/restore.sh "http://user:pass@host:9000/bucket1/<key>.sql.gz" postgresql:///objidx_restore
+# or from a local file:
+scripts/restore.sh ./objidx-20260610T120000Z.sql.gz postgresql:///objidx_restore
+```
+
+Note the printed URL embeds whatever is in `OBJIDX_S3` (including any
+`user:pass`), since every direct simpler-objects URL does; treat the backup URL
+as a secret accordingly.
+
 ## Config files
 
 
