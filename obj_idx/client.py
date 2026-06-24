@@ -22,9 +22,9 @@ from simpler_objects.client import (
     ClientError,
 )
 from . import clilib
-from .common import is_valid_url, reconcile_mime_ext, get_mime
+from .common import is_valid_url, reconcile_mime_ext, get_mime, GENERIC_MIME
 
-SW_STRING = 'OIC-0.3.5'
+SW_STRING = 'OIC-0.3.7'
 
 def get_mime_data(file_path: pathlib.Path) -> str:
     """Determine mime type based on file data"""
@@ -88,7 +88,8 @@ def upload_core(filename: str,
         assert checksum_val == file_checksum
     data_mime = get_mime_data(file_path)
     if file_mime:
-        if data_mime and file_mime != data_mime:
+        # A generic octet-stream sniff is "unknown", not a real contradiction of a given MIME.
+        if data_mime and data_mime != GENERIC_MIME and file_mime != data_mime:
             warnings.warn(f"Given MIME type {file_mime} doesn't seem to match apparent data {data_mime}")
     else:
         file_mime = data_mime
