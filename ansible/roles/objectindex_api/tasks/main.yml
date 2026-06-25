@@ -67,6 +67,12 @@
     cmd: "python3 -m venv {{ objectindex_venv }}"
     creates: "{{ objectindex_venv }}/bin/python"
 
+- name: manually install SO
+  ansible.builtin.pip:
+    name: "https://github.com/ctengel/simpler-objects/archive/refs/tags/v0.4.6.tar.gz"
+    state: present
+    virtualenv: "{{ objectindex_venv }}"
+
 - name: Install / upgrade objectindex in the venv
   ansible.builtin.pip:
     name: "{{ objectindex_git_url }}/archive/refs/tags/{{ objectindex_version }}.tar.gz"
