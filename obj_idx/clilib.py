@@ -59,29 +59,48 @@ class File:
 
 class ObjectIndex:
     """Interface with an ObjectIndex API instance"""
-    def __init__(self, url, user=None, sw=None, host=None):
+
+    # Class-level defaults so Mock(spec=ObjectIndex) exposes them too
+    api_key = None
+    ca_bundle = None
+
+    def __init__(self, url, user=None, sw=None, host=None, api_key=None, ca_bundle=None):
         self.url = url
         self.user = user
         self.sw = sw
         self.host = host
+        self.api_key = api_key
+        self.ca_bundle = ca_bundle
 
     # TODO combine put/post/get to single function
 
+    def _request_kwargs(self):
+        """Auth/TLS kwargs for requests calls, only when configured"""
+        kwargs = {}
+        if self.api_key:
+            kwargs['headers'] = {'Authorization': f'Bearer {self.api_key}'}
+        if self.ca_bundle:
+            kwargs['verify'] = self.ca_bundle
+        return kwargs
+
     def put(self, url, json):
         """Run an API PUT/PATCH"""
-        result = requests.put(urljoin(self.url, url), json=json, timeout=TIMEOUT)
+        result = requests.put(urljoin(self.url, url), json=json, timeout=TIMEOUT,
+                              **self._request_kwargs())
         result.raise_for_status()
         return result.json()
 
     def post(self, url, json):
         """Run an API POST"""
-        result = requests.post(urljoin(self.url, url), json=json, timeout=TIMEOUT)
+        result = requests.post(urljoin(self.url, url), json=json, timeout=TIMEOUT,
+                               **self._request_kwargs())
         result.raise_for_status()
         return result.json()
 
     def get(self, url, params=None):
         """Run an API GET"""
-        result = requests.get(urljoin(self.url, url), params=params, timeout=TIMEOUT)
+        result = requests.get(urljoin(self.url, url), params=params, timeout=TIMEOUT,
+                              **self._request_kwargs())
         result.raise_for_status()
         return result.json()
 

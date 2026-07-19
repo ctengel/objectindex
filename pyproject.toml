@@ -1,6 +1,6 @@
 [project]
 name = "objectindex"
-version = "0.3.7"
+version = "0.4.0"
 description = "Object Index allows you to index your objexts in S3"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,7 +20,7 @@ dependencies = [
   'sqlmodel >= 0.0.38',
   'flask >= 2.1',
   'requests >= 2.27',
-  'simpler-objects[client] >= 0.4',
+  'simpler-objects[client] >= 0.5',
   'psycopg2 >= 2.9',
   'sqlalchemy >= 2.0',
   'file-magic >= 0.4'

@@ -27,8 +27,32 @@ os.environ["OBJIDX_BUCKETS"] = "bucket1"
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
+from obj_idx import config  # noqa: E402
 from obj_idx.api import app  # noqa: E402
 from obj_idx.db import engine  # noqa: E402
+
+# Three clients for the auth tests: alice has full access to bucket1, bob is
+# read-only there, carol write-only. Same TOML format as simpler-objects'
+# auth.toml.
+ALICE_KEY = "alice-secret-key"
+BOB_KEY = "bob-secret-key"
+CAROL_KEY = "carol-secret-key"
+AUTH_TOML = f"""
+[clients.alice]
+key = "{ALICE_KEY}"
+[clients.alice.buckets]
+"bucket1" = ["read", "write", "list"]
+
+[clients.bob]
+key = "{BOB_KEY}"
+[clients.bob.buckets]
+"bucket1" = ["read"]
+
+[clients.carol]
+key = "{CAROL_KEY}"
+[clients.carol.buckets]
+"bucket1" = ["write"]
+"""
 
 # Canonical schema, mirroring schema.sql (minus pg_dump noise / owners). Kept as
 # a literal so the tests run against the contract schema, independent of the ORM.
@@ -69,10 +93,35 @@ CREATE INDEX ix_object_checksum ON object USING btree (checksum);
 _client = TestClient(app)
 
 
-@pytest.fixture()
-def client():
-    """Reset to an empty schema, then yield the in-process TestClient."""
+def _reset_schema():
     with engine.begin() as conn:
         for statement in filter(None, (s.strip() for s in SCHEMA_DDL.split(";"))):
             conn.execute(text(statement))
+
+
+@pytest.fixture()
+def client():
+    """Reset to an empty schema, then yield the in-process TestClient."""
+    _reset_schema()
     return _client
+
+
+@pytest.fixture()
+def auth_client(tmp_path):
+    """TestClient with OBJIDX_AUTH_CONFIG pointing at the alice/bob config.
+
+    The auth dependency reads config.get_auth() per request, so clearing the
+    settings caches around the env change is all that's needed; the DB engine
+    binding (import time) is unaffected.
+    """
+    auth_path = tmp_path / "auth.toml"
+    auth_path.write_text(AUTH_TOML)
+    auth_path.chmod(0o600)  # avoid AuthConfig.load's permissions warning
+    os.environ["OBJIDX_AUTH_CONFIG"] = str(auth_path)
+    config.get_settings.cache_clear()
+    config.get_auth.cache_clear()
+    _reset_schema()
+    yield _client
+    del os.environ["OBJIDX_AUTH_CONFIG"]
+    config.get_settings.cache_clear()
+    config.get_auth.cache_clear()

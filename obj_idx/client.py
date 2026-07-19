@@ -24,7 +24,7 @@ from simpler_objects.client import (
 from . import clilib
 from .common import is_valid_url, reconcile_mime_ext, get_mime, GENERIC_MIME
 
-SW_STRING = 'OIC-0.3.7'
+SW_STRING = 'OIC-0.4.0'
 
 def get_mime_data(file_path: pathlib.Path) -> str:
     """Determine mime type based on file data"""
@@ -124,7 +124,8 @@ def upload_core(filename: str,
 
     if not my_file.exists():
         s3_url = my_file.get_s3_url()
-        simple_upload(filename, s3_url, file_mime, file_checksum)
+        simple_upload(filename, s3_url, file_mime, file_checksum,
+                      api_key=obj_idx.api_key, ca_bundle=obj_idx.ca_bundle)
         my_file.finish_upload()
     return my_file
 
@@ -183,6 +184,9 @@ def upload_remote(url: str,
             return finds[0]
     with tempfile.NamedTemporaryFile() as temp:
         try:
+            # This fetches the arbitrary third-party source URL, so it must
+            # not carry our shared OI/SO api_key (that would leak it) nor the
+            # private ca_bundle (that would break public-CA TLS).
             digest, mime, new_keyhint, new_mtime = simple_download(url, temp.name)
         except ClientError as excp:
             if catch_dl_err:
@@ -222,29 +226,51 @@ def upload(filename: str,
                         file_mime=file_mime)
 
 
-def get_obj_idx(url, user, sw=None):
-    """Get ObjectIndex object"""
-    # TODO add in user and auth
-    return clilib.ObjectIndex(url, host=socket.gethostname(), sw=sw or SW_STRING, user=user)
+def parse_auth(value):
+    """Split an ``OBJIDX_AUTH`` value into (user, api_key-or-None).
+
+    ``name:key`` yields both; a bare ``name`` (pre-auth format) yields no key.
+    """
+    user, _, api_key = value.partition(':')
+    return user, api_key or None
+
+
+def get_obj_idx(url, user, sw=None, api_key=None, ca_bundle=None):
+    """Get ObjectIndex object
+
+    The api_key doubles as the simpler-objects key for byte I/O (the same
+    client name/key is provisioned in both systems' auth configs).
+    """
+    return clilib.ObjectIndex(url, host=socket.gethostname(), sw=sw or SW_STRING, user=user,
+                              api_key=api_key, ca_bundle=ca_bundle)
 
 
 def get_obj_idx_env(sw=None):
     """Get objidx from environment"""
     oi_url = os.environ['OBJIDX_URL']
-    oi_user = os.environ['OBJIDX_AUTH'].partition(':')[0]
-    return get_obj_idx(oi_url, oi_user, sw=sw)
+    oi_user, api_key = parse_auth(os.environ['OBJIDX_AUTH'])
+    return get_obj_idx(oi_url, oi_user, sw=sw,
+                       api_key=api_key, ca_bundle=os.environ.get('OBJIDX_CA_BUNDLE'))
 
 
-def head_locator(s3_base: str, bucket: str, key: str, timeout: int = clilib.TIMEOUT):
+def head_locator(s3_base: str, bucket: str, key: str, timeout: int = clilib.TIMEOUT,
+                 api_key=None, ca_bundle=None):
     """HEAD an object on the simpler-objects locator, following its 307.
 
     Returns the raw requests.Response. 200 means present, 503 an upload is in
     progress, 404 absent; the caller interprets these (we do not raise).
     ``allow_redirects`` is required: the locator answers a hit with a 307 to the
     backend, whose reply carries the ``Repr-Digest`` and ``Content-Type``.
+    ``api_key`` authenticates the locator leg; requests drops the header on the
+    cross-host redirect, where the signed Location URL takes over.
     """
     url = urljoin(s3_base, f"{bucket}/{key}")
-    return clilib.requests.head(url, allow_redirects=True, timeout=timeout)
+    kwargs = {}
+    if api_key:
+        kwargs['headers'] = {'Authorization': f'Bearer {api_key}'}
+    if ca_bundle:
+        kwargs['verify'] = ca_bundle
+    return clilib.requests.head(url, allow_redirects=True, timeout=timeout, **kwargs)
 
 
 class ScrubCategory(str, Enum):
@@ -297,9 +323,11 @@ def clear_failed_upload(obj_idx: clilib.ObjectIndex, brief: dict) -> dict:
     return updated
 
 
-def _scrub_completed(brief: dict, s3_base: str, timeout: int) -> list[ScrubResult]:
+def _scrub_completed(brief: dict, s3_base: str, timeout: int,
+                     api_key=None, ca_bundle=None) -> list[ScrubResult]:
     """Verify a completed object actually matches in simpler-objects (--all)."""
-    resp = head_locator(s3_base, brief['bucket'], brief['key'], timeout)
+    resp = head_locator(s3_base, brief['bucket'], brief['key'], timeout,
+                        api_key=api_key, ca_bundle=ca_bundle)
     if resp.status_code != 200:
         return [ScrubResult(ScrubCategory.MISMATCH, brief,
                             detail=f"HTTP {resp.status_code}", is_error=True)]
@@ -348,7 +376,8 @@ def scrub_bucket(obj_idx: clilib.ObjectIndex,
                                        is_error=True))
             continue
         if not completed:  # and not deleted
-            resp = head_locator(s3_base, brief['bucket'], brief['key'], timeout)
+            resp = head_locator(s3_base, brief['bucket'], brief['key'], timeout,
+                                api_key=obj_idx.api_key, ca_bundle=obj_idx.ca_bundle)
             if resp.status_code == 404:
                 category = ScrubCategory.FAILED_OR_NEVER_STARTED
             elif resp.status_code == 503:
@@ -363,7 +392,9 @@ def scrub_bucket(obj_idx: clilib.ObjectIndex,
             continue
         # completed and not deleted
         if check_all:
-            results.extend(_scrub_completed(brief, s3_base, timeout))
+            results.extend(_scrub_completed(brief, s3_base, timeout,
+                                            api_key=obj_idx.api_key,
+                                            ca_bundle=obj_idx.ca_bundle))
     return results
 
 
@@ -376,7 +407,9 @@ def download(obj_idx: clilib.ObjectIndex, url: str, pretend: bool = False) -> li
         s3_url = file.get_s3_url()
         # TODO allow selecting target
         tgt_filename = s3_url.rsplit('/', 1)[-1]
-        dl_cksum, _, _, _ = simple_download(s3_url, tgt_filename)
+        dl_cksum, _, _, _ = simple_download(s3_url, tgt_filename,
+                                            api_key=obj_idx.api_key,
+                                            ca_bundle=obj_idx.ca_bundle)
         if dl_cksum:
             assert file.object['checksum'] == dl_cksum.hex()
         assert file.object['checksum'] == checksum(tgt_filename).hex()

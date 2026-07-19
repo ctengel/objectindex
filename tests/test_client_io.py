@@ -367,3 +367,73 @@ def test_download_verifies_checksum(dl_digest):
             # digest-present: dl_cksum.hex() == file.object['checksum']
             # digest-none: the `if dl_cksum:` guard is skipped; disk re-hash verifies
             client.download(mock_oi, 'http://example.com/v.mp4')
+
+
+# ---------------------------------------------------------------------------
+# api_key / ca_bundle threading to simpler_objects
+# ---------------------------------------------------------------------------
+
+def _mock_obj_idx_with_creds():
+    mock_oi = _mock_obj_idx()
+    mock_oi.api_key = 'sekrit'
+    mock_oi.ca_bundle = '/ca.pem'
+    return mock_oi
+
+
+def test_upload_core_passes_credentials_to_simple_upload():
+    with tempfile.NamedTemporaryFile() as tf:
+        tf.write(CONTENT)
+        tf.flush()
+        mock_oi = _mock_obj_idx_with_creds()
+        mock_oi.initiate_upload.return_value = _make_mock_initiate_file(exists=False)
+        with patch('obj_idx.client.simple_upload') as mock_upload:
+            client.upload_core(tf.name, mock_oi, 'bucket1',
+                               'file://host/a.txt', datetime.datetime(2021, 1, 1))
+    assert mock_upload.call_args.kwargs['api_key'] == 'sekrit'
+    assert mock_upload.call_args.kwargs['ca_bundle'] == '/ca.pem'
+
+
+def test_download_passes_credentials_to_simple_download():
+    mock_oi = _mock_obj_idx_with_creds()
+    mock_file = _make_mock_file()
+    mock_file.get_s3_url.return_value = 'http://s3.test/bucket1/key.mp4'
+    mock_oi.search_files.return_value = [mock_file]
+    with patch('obj_idx.client.simple_download',
+               return_value=(None, 'video/mp4', 'key.mp4', None)) as mock_dl:
+        with patch('obj_idx.client.checksum', return_value=CKSUM_BYTES):
+            client.download(mock_oi, 'http://example.com/v.mp4')
+    assert mock_dl.call_args.kwargs['api_key'] == 'sekrit'
+    assert mock_dl.call_args.kwargs['ca_bundle'] == '/ca.pem'
+
+
+def test_upload_remote_source_download_has_no_credentials():
+    # The source URL is an arbitrary third-party host: the shared OI/SO key
+    # must never ride along, nor the private CA bundle.
+    mock_oi = _mock_obj_idx_with_creds()
+    with patch('obj_idx.client.find_files', return_value=[]):
+        with patch('obj_idx.client.simple_download',
+                   return_value=(None, 'video/mp4', 'v.mp4',
+                                 datetime.datetime(2022, 6, 1))) as mock_dl:
+            with patch('obj_idx.client.upload_core', return_value=Mock()):
+                client.upload_remote('http://example.com/v.mp4', mock_oi,
+                                     'bucket1', check_exists=False)
+    assert 'api_key' not in mock_dl.call_args.kwargs
+    assert 'ca_bundle' not in mock_dl.call_args.kwargs
+
+
+def test_head_locator_sends_bearer_and_verify():
+    with patch('obj_idx.clilib.requests') as mock_req:
+        client.head_locator('http://s3.test/', 'bucket1', 'key.txt',
+                            api_key='sekrit', ca_bundle='/ca.pem')
+    kwargs = mock_req.head.call_args.kwargs
+    assert kwargs['headers'] == {'Authorization': 'Bearer sekrit'}
+    assert kwargs['verify'] == '/ca.pem'
+    assert kwargs['allow_redirects'] is True
+
+
+def test_head_locator_no_credentials_no_extra_kwargs():
+    with patch('obj_idx.clilib.requests') as mock_req:
+        client.head_locator('http://s3.test/', 'bucket1', 'key.txt')
+    kwargs = mock_req.head.call_args.kwargs
+    assert 'headers' not in kwargs
+    assert 'verify' not in kwargs

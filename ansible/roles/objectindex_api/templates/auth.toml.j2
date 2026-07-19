@@ -1,0 +1,16 @@
+{{ ansible_managed | comment('#') }}
+# Client API keys and per-bucket permissions for the ObjectIndex API.
+# Same format as simpler-objects' auth.toml. Operations: read (download URL),
+# write (upload / object update), list (bucket listing); "*" is a wildcard
+# for buckets without an exact entry.
+{% for name, entry in objidx_auth_clients.items() %}
+
+[clients.{{ name }}]
+key = "{{ entry.key }}"
+{% if entry.buckets is defined and entry.buckets %}
+[clients.{{ name }}.buckets]
+{% for bucket, ops in entry.buckets.items() %}
+"{{ bucket }}" = {{ ops | to_json }}
+{% endfor %}
+{% endif %}
+{% endfor %}
