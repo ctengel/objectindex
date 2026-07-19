@@ -7,6 +7,7 @@ import socket
 import pathlib
 import mimetypes
 import datetime
+import time
 import warnings
 from dataclasses import dataclass
 from enum import Enum
@@ -24,7 +25,7 @@ from simpler_objects.client import (
 from . import clilib
 from .common import is_valid_url, reconcile_mime_ext, get_mime, GENERIC_MIME
 
-SW_STRING = 'OIC-0.3.7'
+SW_STRING = 'OIC-0.3.8'
 
 def get_mime_data(file_path: pathlib.Path) -> str:
     """Determine mime type based on file data"""
@@ -245,6 +246,69 @@ def head_locator(s3_base: str, bucket: str, key: str, timeout: int = clilib.TIME
     """
     url = urljoin(s3_base, f"{bucket}/{key}")
     return clilib.requests.head(url, allow_redirects=True, timeout=timeout)
+
+
+# The locator fans a DELETE out to every object server (8 s each), so allow
+# well beyond clilib.TIMEOUT; 64 also matches simpler-objects' Retry-After.
+DELETE_TIMEOUT = 64
+# Ceiling on honoring a server-supplied Retry-After between delete attempts.
+DELETE_RETRY_CAP = 120
+
+
+def delete_locator(s3_base: str, bucket: str, key: str,
+                   timeout: int = DELETE_TIMEOUT):
+    """DELETE an object on the simpler-objects locator.
+
+    Unlike GET/HEAD/PUT this is not redirected: the locator itself sends the
+    DELETE to every object server, since each replica must go. Returns the raw
+    requests.Response. 204 means every copy is gone, 404 no copy anywhere,
+    503 retriable (a copy may survive); the caller interprets these (we do
+    not raise).
+    """
+    url = urljoin(s3_base, f"{bucket}/{key}")
+    return clilib.requests.delete(url, allow_redirects=False, timeout=timeout)
+
+
+def delete_object_data(obj_idx: clilib.ObjectIndex, objid, s3_base: str,
+                       max_attempts: int = 5) -> bool:
+    """Delete an object's bytes from the store, keeping the metadata record.
+
+    DELETEs on the locator until it confirms 204/404 (503 means a copy may
+    survive, so we sleep per its Retry-After and try again), then reports the
+    deletion to ObjectIndex with the combined completed+deleted PUT. Also
+    works on objects already marked deleted whose bytes were never removed.
+    Returns True on success, or False when the retry budget ran out before
+    the store confirmed -- the record is then left unmarked; run again later.
+    Raises ValueError for a never-completed object (clear those with scrub
+    --clear instead: deleting mid-upload would tombstone the key and block
+    the retry re-upload) and HTTPError on any other failure.
+    """
+    my_object = obj_idx.get_object(objid)
+    if not my_object['completed']:
+        raise ValueError(f"object {objid} upload not completed; "
+                         "use scrub --clear instead")
+    attempts = 0
+    while True:
+        resp = delete_locator(s3_base, my_object['bucket'], my_object['key'])
+        if resp.status_code in (204, 404):
+            break
+        if resp.status_code != 503:
+            # e.g. 401/403: the locator identity lacks the `delete` permission
+            resp.raise_for_status()
+            raise clilib.requests.HTTPError(
+                f"unexpected HTTP {resp.status_code} deleting "
+                f"{my_object['bucket']}/{my_object['key']}")
+        attempts += 1
+        if attempts >= max_attempts:
+            return False
+        retry_after = resp.headers.get('Retry-After', '')
+        time.sleep(min(int(retry_after) if retry_after.isdigit() else 64,
+                       DELETE_RETRY_CAP))
+    updated = obj_idx.put_object(objid, {"completed": True, "deleted": True})
+    if not updated.get('deleted'):
+        raise clilib.requests.HTTPError(
+            f"object {objid} bytes deleted but record not marked")
+    return True
 
 
 class ScrubCategory(str, Enum):
