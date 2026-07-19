@@ -48,8 +48,39 @@ def get_s3_base(cli_value=None):
     """Resolve the simpler-objects base URL from --s3 or OBJIDX_S3"""
     base = cli_value or os.environ.get('OBJIDX_S3')
     if not base:
-        raise SystemExit("scrub requires --s3 or the OBJIDX_S3 environment variable")
+        raise SystemExit("requires --s3 or the OBJIDX_S3 environment variable")
     return base if base.endswith('/') else base + '/'
+
+
+def _delete(obj_idx, args):
+    s3_base = get_s3_base(args.s3)
+    any_error = False
+    if args.url:
+        objids = []
+        for url in args.item:
+            files = obj_idx.search_files({'url': url})
+            found = [f.object['uuid'] for f in files if f.object]
+            if not found:
+                print(url, 'NOT-FOUND')
+                any_error = True
+            objids.extend(found)
+        # A URL's files may share an object with another URL's; delete once.
+        objids = list(dict.fromkeys(objids))
+    else:
+        objids = args.item
+    for objid in objids:
+        try:
+            done = client.delete_object_data(obj_idx, objid, s3_base)
+        except (client.clilib.requests.RequestException, ValueError) as exc:
+            print(objid, 'ERROR', exc)
+            any_error = True
+            continue
+        if done:
+            print(objid, 'DELETED')
+        else:
+            print(objid, 'RETRY-LATER')
+            any_error = True
+    return 1 if any_error else 0
 
 
 def _scrub(obj_idx, args):
@@ -101,6 +132,12 @@ def cli():
     parser_check.add_argument('-r', '--rm', action='store_true')
     parser_check.add_argument('filename', nargs='+')
     parser_check.set_defaults(func=_check)
+    parser_delete = subparsers.add_parser('delete')
+    parser_delete.add_argument('-u', '--url', action='store_true',
+                               help='arguments are original URLs, not object UUIDs')
+    parser_delete.add_argument('--s3')
+    parser_delete.add_argument('item', nargs='+')
+    parser_delete.set_defaults(func=_delete)
     parser_scrub = subparsers.add_parser('scrub')
     parser_scrub.add_argument('bucket', nargs='+')
     parser_scrub.add_argument('--all', action='store_true')

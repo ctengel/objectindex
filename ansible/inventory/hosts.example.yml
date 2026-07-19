@@ -10,7 +10,7 @@ all:
 
     # The one knob you change to upgrade. The playbook pins the package to this
     # git tag; bump it and re-run the playbook to upgrade.
-    objectindex_version: v0.3.2
+    objectindex_version: v0.3.8
 
   children:
 

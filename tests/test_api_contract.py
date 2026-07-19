@@ -400,11 +400,67 @@ def test_put_deleted(client):
     assert resp.json()["deleted"] is True
 
 
-def test_put_both_true_rejected(client):
+def test_put_both_reports_data_deletion(client):
+    # completed+deleted together report that the client removed the bytes of
+    # a completed object from the object store; the record is kept.
+    content = b"delete my bytes"
+    resp1, _ = _upload(client, content=content)
+    obj_url = resp1.json()["upload"]["finished"]
+    assert _complete(client, obj_url).status_code == 200
+
+    resp = client.put(obj_url, json={"completed": True, "deleted": True})
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+    obj = client.get(obj_url).json()
+    assert obj["completed"] is True
+    assert obj["deleted"] is True
+
+    # download now 410s, and re-upload of the same content is refused --
+    # matching the store's tombstone, which would 409 the re-PUT anyway
+    obj_uuid = obj["uuid"]
+    assert client.get(f"/object/{obj_uuid}/download").status_code == 410
+    resp2, _ = _upload(client, content=content, url="file://host/again.txt")
+    assert resp2.status_code == 410
+
+    # idempotent: reporting again is fine (retried deletes end here too)
+    assert client.put(obj_url,
+                      json={"completed": True, "deleted": True}).status_code == 200
+
+
+def test_put_both_on_incomplete_409(client):
+    # A never-completed upload must not be data-deleted (the store tombstone
+    # would permanently block the retry re-PUT); clear it with deleted only.
     resp1, _ = _upload(client)
     obj_url = resp1.json()["upload"]["finished"]
     resp = client.put(obj_url, json={"completed": True, "deleted": True})
-    assert resp.status_code >= 400
+    assert resp.status_code == 409
+    obj = client.get(obj_url).json()
+    assert obj["completed"] is False
+    assert obj["deleted"] is False
+
+
+def test_put_both_on_cleared_409(client):
+    # Same for an upload already cleared into retry mode.
+    resp1, _ = _upload(client, content=b"cleared upload")
+    obj_url = resp1.json()["upload"]["finished"]
+    assert client.put(obj_url, json={"deleted": True}).status_code == 200
+    resp = client.put(obj_url, json={"completed": True, "deleted": True})
+    assert resp.status_code == 409
+    obj = client.get(obj_url).json()
+    assert obj["completed"] is False
+    assert obj["deleted"] is True
+
+
+def test_put_deleted_only_still_noop_on_completed(client):
+    # scrub --clear's race guard: deleted alone must stay a silent no-op on a
+    # completed object so a clear that lost the race is detectable.
+    resp1, _ = _upload(client, content=b"completed meanwhile")
+    obj_url = resp1.json()["upload"]["finished"]
+    assert _complete(client, obj_url).status_code == 200
+    resp = client.put(obj_url, json={"deleted": True})
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is False
+    assert client.get(obj_url).json()["deleted"] is False
 
 
 def test_put_completed_after_deleted_rejected(client):

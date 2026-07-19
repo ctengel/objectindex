@@ -367,3 +367,95 @@ def test_download_verifies_checksum(dl_digest):
             # digest-present: dl_cksum.hex() == file.object['checksum']
             # digest-none: the `if dl_cksum:` guard is skipped; disk re-hash verifies
             client.download(mock_oi, 'http://example.com/v.mp4')
+
+
+# ---------------------------------------------------------------------------
+# delete_object_data
+# ---------------------------------------------------------------------------
+
+S3_BASE = 'http://s3.test/'
+
+
+def _locator_resp(status_code, retry_after=None):
+    resp = Mock()
+    resp.status_code = status_code
+    resp.headers = {'Retry-After': retry_after} if retry_after else {}
+    return resp
+
+
+def _deletable_obj_idx(completed=True, deleted=False):
+    mock_oi = _mock_obj_idx()
+    mock_oi.get_object.return_value = _make_object_dict(completed=completed,
+                                                        deleted=deleted)
+    mock_oi.put_object.return_value = _make_object_dict(deleted=True)
+    return mock_oi
+
+
+def test_delete_204_marks_deleted():
+    mock_oi = _deletable_obj_idx()
+    with patch('obj_idx.client.delete_locator',
+               return_value=_locator_resp(204)) as mock_del:
+        assert client.delete_object_data(mock_oi, OBJ_UUID, S3_BASE) is True
+    mock_del.assert_called_once_with(S3_BASE, 'bucket1', f'{CKSUM_HEX}-a.txt')
+    mock_oi.put_object.assert_called_once_with(
+        OBJ_UUID, {"completed": True, "deleted": True})
+
+
+def test_delete_404_marks_deleted():
+    # No copy anywhere still reaches the target state (e.g. re-running after
+    # a crash between the store delete and the report, or a legacy row).
+    mock_oi = _deletable_obj_idx()
+    with patch('obj_idx.client.delete_locator', return_value=_locator_resp(404)):
+        assert client.delete_object_data(mock_oi, OBJ_UUID, S3_BASE) is True
+    mock_oi.put_object.assert_called_once()
+
+
+def test_delete_already_marked_still_deletes_bytes():
+    # The purge path for records marked deleted whose bytes were never removed.
+    mock_oi = _deletable_obj_idx(deleted=True)
+    with patch('obj_idx.client.delete_locator',
+               return_value=_locator_resp(204)) as mock_del:
+        assert client.delete_object_data(mock_oi, OBJ_UUID, S3_BASE) is True
+    mock_del.assert_called_once()
+
+
+def test_delete_retries_503_honoring_retry_after():
+    mock_oi = _deletable_obj_idx()
+    responses = [_locator_resp(503, retry_after='7'),
+                 _locator_resp(503, retry_after='not-a-number'),
+                 _locator_resp(204)]
+    with patch('obj_idx.client.delete_locator', side_effect=responses):
+        with patch('obj_idx.client.time.sleep') as mock_sleep:
+            assert client.delete_object_data(mock_oi, OBJ_UUID, S3_BASE) is True
+    assert [c.args[0] for c in mock_sleep.call_args_list] == [7, 64]
+    mock_oi.put_object.assert_called_once()
+
+
+def test_delete_503_budget_exhausted_returns_false():
+    # A copy may survive: the record must NOT be marked deleted.
+    mock_oi = _deletable_obj_idx()
+    with patch('obj_idx.client.delete_locator',
+               return_value=_locator_resp(503, retry_after='1')):
+        with patch('obj_idx.client.time.sleep'):
+            assert client.delete_object_data(mock_oi, OBJ_UUID, S3_BASE,
+                                             max_attempts=3) is False
+    mock_oi.put_object.assert_not_called()
+
+
+def test_delete_403_raises():
+    mock_oi = _deletable_obj_idx()
+    resp = _locator_resp(403)
+    resp.raise_for_status.side_effect = requests.HTTPError('403')
+    with patch('obj_idx.client.delete_locator', return_value=resp):
+        with pytest.raises(requests.HTTPError):
+            client.delete_object_data(mock_oi, OBJ_UUID, S3_BASE)
+    mock_oi.put_object.assert_not_called()
+
+
+def test_delete_incomplete_raises_without_locator_call():
+    mock_oi = _deletable_obj_idx(completed=False)
+    with patch('obj_idx.client.delete_locator') as mock_del:
+        with pytest.raises(ValueError):
+            client.delete_object_data(mock_oi, OBJ_UUID, S3_BASE)
+    mock_del.assert_not_called()
+    mock_oi.put_object.assert_not_called()

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Object Index API
   description: API for storing info about Objects
-  version: '0.1'
+  version: '0.3.8'
 paths:
   /upload/:
     post:
@@ -178,7 +178,13 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
     put:
       summary: Update Object
-      description: Let us know an upload is completed (or deleted)
+      description: >
+        Let us know an upload is completed (or deleted). Setting both
+        `completed` and `deleted` reports that the bytes of a *completed*
+        object were removed from the object store (the client DELETEd them
+        via the simpler-objects locator first); the record is kept with
+        `deleted` set. Setting `deleted` alone still only clears a failed
+        upload and remains a no-op on completed objects.
       operationId: update_object_object__obj_uuid___put
       parameters:
       - name: obj_uuid
@@ -201,18 +207,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ObjectRead'
-        '400':
-          description: Cannot set both completed and deleted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
         '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
           description: Not Found
+        '409':
+          description: Object already cleared/deleted, or a data-deletion
+            report for an upload that never completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
         '422':
           description: Validation Error
           content:

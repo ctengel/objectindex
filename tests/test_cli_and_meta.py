@@ -117,6 +117,70 @@ def test_cli_check_rm_unlinks_file():
 
 
 # ---------------------------------------------------------------------------
+# cli._delete
+# ---------------------------------------------------------------------------
+
+def test_cli_delete_by_uuid(capsys):
+    mock_oi = _mock_oi()
+    args = argparse.Namespace(item=[OBJ_UUID], url=False, s3='http://s3.test/')
+    with patch('obj_idx.cli.client.delete_object_data',
+               return_value=True) as mock_del:
+        rc = cli._delete(mock_oi, args)
+    mock_del.assert_called_once_with(mock_oi, OBJ_UUID, 'http://s3.test/')
+    assert rc == 0
+    assert 'DELETED' in capsys.readouterr().out
+
+
+def test_cli_delete_by_url_resolves_objects(capsys):
+    mock_oi = _mock_oi()
+    mock_oi.search_files.return_value = [_mock_file(), _mock_file()]
+    args = argparse.Namespace(item=['file://host/a.txt'], url=True,
+                              s3='http://s3.test/')
+    with patch('obj_idx.cli.client.delete_object_data',
+               return_value=True) as mock_del:
+        rc = cli._delete(mock_oi, args)
+    # both files share one object -> deleted once
+    mock_del.assert_called_once_with(mock_oi, OBJ_UUID, 'http://s3.test/')
+    assert rc == 0
+
+
+def test_cli_delete_retry_later_nonzero_exit(capsys):
+    mock_oi = _mock_oi()
+    args = argparse.Namespace(item=[OBJ_UUID], url=False, s3='http://s3.test/')
+    with patch('obj_idx.cli.client.delete_object_data', return_value=False):
+        rc = cli._delete(mock_oi, args)
+    assert rc == 1
+    assert 'RETRY-LATER' in capsys.readouterr().out
+
+
+def test_cli_delete_error_continues(capsys):
+    mock_oi = _mock_oi()
+    other_uuid = 'aaaaaaaa-0000-0000-0000-000000000009'
+    args = argparse.Namespace(item=[OBJ_UUID, other_uuid], url=False,
+                              s3='http://s3.test/')
+    with patch('obj_idx.cli.client.delete_object_data',
+               side_effect=[ValueError('not completed'), True]) as mock_del:
+        rc = cli._delete(mock_oi, args)
+    assert mock_del.call_count == 2
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'ERROR' in out
+    assert 'DELETED' in out
+
+
+def test_cli_delete_url_not_found(capsys):
+    mock_oi = _mock_oi()
+    mock_oi.search_files.return_value = []
+    args = argparse.Namespace(item=['file://host/nope.txt'], url=True,
+                              s3='http://s3.test/')
+    with patch('obj_idx.cli.client.delete_object_data') as mock_del:
+        rc = cli._delete(mock_oi, args)
+    mock_del.assert_not_called()
+    assert rc == 1
+    assert 'NOT-FOUND' in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
 # cli.get_s3_base / cli._scrub
 # ---------------------------------------------------------------------------
 

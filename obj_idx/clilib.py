@@ -133,7 +133,9 @@ class ObjectIndex:
         return fileobj
 
     def put_object(self, object_uuid: uuid.UUID, info: dict):
-        """PUT/PATCH an object (e.g. {"completed": True} or {"deleted": True})"""
+        """PUT/PATCH an object (e.g. {"completed": True} or {"deleted": True};
+        {"completed": True, "deleted": True} reports a completed object's
+        bytes were deleted from the object store)"""
         return self.put(f"object/{object_uuid}/", json=info)
 
     def search_files(self, params):

@@ -47,7 +47,7 @@ def escape_like_prefix(value):
 
 app = FastAPI(
     title="Object Index API",
-    version="0.3.5",
+    version="0.3.8",
     description="API for storing info about Objects",
 )
 
@@ -254,22 +254,43 @@ def get_object(obj_uuid: uuid.UUID, session: Session = Depends(get_session)):
 
 @app.put("/object/{obj_uuid}/", response_model=ObjectRead,
          responses={
-             400: {"model": DetailResponse,
-                   "description": "Cannot set both completed and deleted"},
              404: {"model": DetailResponse},
              409: {"model": DetailResponse,
-                   "description": "Object already cleared/deleted"},
+                   "description": "Object already cleared/deleted, or a "
+                                  "data-deletion report for an upload that "
+                                  "never completed"},
          })
 def update_object(obj_uuid: uuid.UUID,
                   payload: ObjectUpdate,
                   session: Session = Depends(get_session)):
-    """Let us know an upload is completed (or deleted)"""
+    """Let us know an upload is completed (or deleted)
+
+    Setting both ``completed`` and ``deleted`` reports that the bytes of a
+    *completed* object were removed from the object store (the client DELETEd
+    them via the simpler-objects locator first); the record is kept with
+    ``deleted`` set. Setting ``deleted`` alone still only clears a failed
+    upload and remains a no-op on completed objects.
+    """
     # TODO(#96): serialize concurrent clear/complete with a row lock
     my_obj = session.get(Object, obj_uuid)
     if my_obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
     new_completed = payload.completed
     new_deleted = payload.deleted
+    if new_completed and new_deleted:
+        # A data-deletion report: the client removed the bytes of a completed
+        # object from the object store and asserts the target state. Kept
+        # distinct from deleted-only so scrub --clear's completed-in-the-
+        # meantime race guard (silent no-op below) survives.
+        if not my_obj.completed:
+            raise HTTPException(status_code=409,
+                                detail="Upload not completed; clear it with "
+                                       "deleted only (scrub --clear)")
+        if not my_obj.deleted:
+            my_obj.deleted = True
+            session.commit()
+            session.refresh(my_obj)
+        return my_obj
     if new_completed and my_obj.deleted:
         # Upload was cleared/deleted (perhaps accidentally) but the bytes
         # finished landing afterwards; surface the conflict instead of
@@ -278,9 +299,6 @@ def update_object(obj_uuid: uuid.UUID,
                             detail="Object was cleared/deleted; "
                                    "completion rejected")
     if not my_obj.completed and not my_obj.deleted:
-        if new_completed and new_deleted:
-            raise HTTPException(status_code=400,
-                                detail="Cannot set both completed and deleted")
         if new_completed or new_deleted:
             if new_completed:
                 my_obj.completed = True

@@ -115,6 +115,38 @@ Notes for client authors:
   so a well‑behaved client that never triggered those crashes is unaffected.
 
 
+## Upgrading to 0.3.8 (object deletion)
+
+0.3.8 adds a real deletion mechanism (issue #23): remove an object's bytes
+from the object store for size reasons while keeping the metadata record.
+
+- **Requires a simpler-objects cluster >= 0.6**, which provides
+  `DELETE /{bucket}/{key}` on the locator. On a secured cluster (auth enabled),
+  the client's locator identity additionally needs the `delete` permission on
+  the bucket. Older clusters: everything else keeps working; only the new
+  delete flow will fail.
+- **No database migration** and no API contract changes other than
+  `PUT /object/{uuid}/`: the previously rejected body
+  `{"completed": true, "deleted": true}` (was `400`) now reports that the
+  bytes of a *completed* object were removed from the store, setting
+  `deleted`; on a not-yet-completed object it returns `409`. Setting
+  `deleted` alone is unchanged (clears a failed upload; still a no-op on
+  completed objects).
+- **New CLI subcommand**: `obj-idx-client delete <object-uuid> ...` (or
+  `obj-idx-client delete -u <original-url> ...` to resolve objects by their
+  source URL). Like `scrub`, it needs the locator base via `--s3` or
+  `OBJIDX_S3`. It DELETEs on the locator — retrying while the locator answers
+  `503` (an object server was unreachable/busy, so a copy may survive) — and
+  only then marks the record deleted. `RETRY-LATER` output means exactly
+  that: run the same command again once the cluster is healthy.
+- **Deletion is permanent.** The object store keeps a checksum tombstone, so
+  re-uploading content with the same key is refused there (`409`), matching
+  objectindex's own `410` on re-upload of a deleted object.
+- **Legacy "deleted" records**: objects marked deleted before 0.3.8 never had
+  their bytes removed. Running `obj-idx-client delete` on them purges the
+  bytes and leaves the record as is.
+
+
 ## Interim infrastructure
 
 Hardware and such:
@@ -386,7 +418,7 @@ Essentially, the lifecycle state machine of an object looks something like this:
 
 The initial client may retry step 2 as many times as needed; however to start from scratch the object needs to be put in "retry" mode (completed: false, deleted: true) as described above.
 
-Finally, once an object is in normal state, the object may be noted as permenantly deleted intentionally (i.e. so no option/desire for retry) by putting it in deleted state (completed: true, deleted: true) - putting it in this state doesn't actually delete it from object store though.
+Finally, once an object is in normal state, it may be permanently deleted intentionally (i.e. no option/desire for retry): the client first DELETEs the bytes on the simpler-objects locator (retrying while it answers 503, until 204/404 confirms every copy is gone), then reports it by PUTting `{"completed": true, "deleted": true}`, landing the object in deleted state (completed: true, deleted: true) — record kept, bytes gone. `obj-idx-client delete` automates this. Note that PUTting `{"deleted": true}` *alone* still does **not** delete a completed object (that no-op is scrub `--clear`'s guard against clearing an upload that completed in the meantime), and records marked deleted before 0.3.8 may still have bytes in the store until `obj-idx-client delete` is run on them.
 
 ### slow json lookups
 
