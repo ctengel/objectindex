@@ -1,7 +1,18 @@
 # Package source. Bump objectindex_version to upgrade; pip detects the changed
 # ref and reinstalls. Idempotent at the same tag.
-objectindex_version: v0.3.2
+objectindex_version: v0.4.0
 objectindex_git_url: https://github.com/ctengel/objectindex
+
+# Client API keys + per-bucket permissions (renders auth.toml and sets
+# OBJIDX_AUTH_CONFIG; keep the keys in Ansible Vault). Same format as
+# simpler-objects' locator_auth_clients — provision the same name+key in both
+# so one client credential covers metadata and bytes. Empty = open API.
+# objidx_auth_clients:
+#   oi:
+#     key: "{{ vault_oi_key }}"
+#     buckets:
+#       bucket1: [read, write, list]
+objidx_auth_clients: {}
 
 # Install layout. The systemd unit uses %h/venv as the default venv path;
 # override with a drop-in (`systemctl --user edit objectindex-api`) if you

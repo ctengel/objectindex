@@ -146,6 +146,36 @@ def test_get_s3_base_missing_raises(monkeypatch):
         cli.get_s3_base(None)
 
 
+@pytest.mark.parametrize('value,expected', [
+    ('alice:sekrit', ('alice', 'sekrit')),
+    ('alice', ('alice', None)),          # pre-0.4.0 keyless format
+    ('alice:', ('alice', None)),
+    ('a:b:c', ('a', 'b:c')),             # key may itself contain colons
+])
+def test_parse_auth(value, expected):
+    assert cli.client.parse_auth(value) == expected
+
+
+def test_get_obj_idx_env_threads_credentials(monkeypatch):
+    monkeypatch.setenv('OBJIDX_URL', 'http://api.test/')
+    monkeypatch.setenv('OBJIDX_AUTH', 'alice:sekrit')
+    monkeypatch.setenv('OBJIDX_CA_BUNDLE', '/ca.pem')
+    oi = cli.client.get_obj_idx_env()
+    assert oi.user == 'alice'
+    assert oi.api_key == 'sekrit'
+    assert oi.ca_bundle == '/ca.pem'
+
+
+def test_get_obj_idx_env_keyless(monkeypatch):
+    monkeypatch.setenv('OBJIDX_URL', 'http://api.test/')
+    monkeypatch.setenv('OBJIDX_AUTH', 'alice')
+    monkeypatch.delenv('OBJIDX_CA_BUNDLE', raising=False)
+    oi = cli.client.get_obj_idx_env()
+    assert oi.user == 'alice'
+    assert oi.api_key is None
+    assert oi.ca_bundle is None
+
+
 def test_scrub_error_returns_one_and_prints(capsys):
     cat = cli.client.ScrubCategory.FAILED_OR_NEVER_STARTED
     args = argparse.Namespace(bucket=['bucket1'], all=False, clear=False, s3='http://s3.test/')

@@ -37,6 +37,16 @@
       - objidx_s3 | length > 0
     fail_msg: "Set `objidx_database_url` and `objidx_s3` for this host in inventory."
 
+# Mirror the app's own startup validator so a stale 0.3.x inventory fails at
+# deploy time, not on the first service restart.
+- name: Assert objidx_s3 embeds no credentials
+  ansible.builtin.assert:
+    that: "'@' not in (objidx_s3 | urlsplit('netloc'))"
+    fail_msg: >
+      `objidx_s3` must not embed user:pass@ credentials since 0.4.0 — clients
+      authenticate to simpler-objects directly (see the README upgrade notes).
+    quiet: true
+
 - name: Ensure config and systemd user dirs exist
   ansible.builtin.file:
     path: "{{ item }}"
@@ -69,7 +79,7 @@
 
 - name: manually install SO
   ansible.builtin.pip:
-    name: "https://github.com/ctengel/simpler-objects/archive/refs/tags/v0.4.6.tar.gz"
+    name: "https://github.com/ctengel/simpler-objects/archive/refs/tags/v0.5.0.tar.gz"
     state: present
     virtualenv: "{{ objectindex_venv }}"
 
@@ -123,10 +133,10 @@
   # WARNING: db_create drops all tables first — never run it against a DB that
   # holds data. For an existing schema, leave it as-is.
 
-# simpler-objects (the object store at OBJIDX_S3) must be running — the API
-# proxies all uploads/downloads to it. Probe its /health endpoint so a down or
-# missing backend fails here, not at first upload. Uses the venv's requests,
-# which honors any user:pass embedded in the URL.
+# simpler-objects (the object store at OBJIDX_S3) must be running — clients
+# are pointed at it for all uploads/downloads. Probe its /health endpoint so a
+# down or missing backend fails here, not at first upload. /health is
+# unauthenticated even on a secured cluster, so no credentials are needed.
 - name: Verify the simpler-objects backend is reachable
   ansible.builtin.command:
     argv:
@@ -148,6 +158,14 @@
     src: api.env.j2
     dest: "{{ objectindex_config_dir }}/api.env"
     mode: "0600"
+  notify: Restart objectindex service
+
+- name: Render the client auth config
+  ansible.builtin.template:
+    src: auth.toml.j2
+    dest: "{{ objectindex_config_dir }}/auth.toml"
+    mode: "0600"
+  when: objidx_auth_clients | length > 0
   notify: Restart objectindex service
 
 - name: Install the systemd user unit

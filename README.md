@@ -32,6 +32,76 @@ There are then a few different ways to use this:
 - CLI client: `obj-idx-client`
 
 
+## Upgrading to 0.4.0 (authentication)
+
+0.4.0 closes the long-standing credential leak (#25): the API **no longer
+embeds simpler-objects credentials in the URLs it returns**, and both
+ObjectIndex and simpler-objects (≥ 0.5) can now require per-client API keys.
+Auth is **opt-in** — an unconfigured setup behaves exactly like 0.3.x, except
+for the `OBJIDX_S3` rule below.
+
+### For operators
+
+- **`OBJIDX_S3` must not embed credentials.** The API now refuses to start if
+  the URL contains `user:pass@`. Nothing consumed those credentials except the
+  responses that leaked them, so simply remove them: `OBJIDX_S3` is the plain
+  base URL of the simpler-objects locator (e.g. `https://localhost:29164/`).
+- **Requires simpler-objects ≥ 0.5** (for `simpler_objects.auth` and the
+  client's `api_key`/`ca_bundle` support).
+- **To enable auth**, point the new `OBJIDX_AUTH_CONFIG` env var at a TOML
+  file in the exact same format as simpler-objects' `auth.toml`:
+
+  ```toml
+  [clients.oi]
+  key = "generate-with-openssl-rand-hex-32"
+  [clients.oi.buckets]
+  "bucket1" = ["read", "write", "list"]
+  # "*" is a wildcard for buckets without an exact entry
+  ```
+
+  Provision the **same client name and key** in both this file and the
+  simpler-objects locator's `AUTH_CONFIG` — a client then configures one
+  credential and uses it for metadata (ObjectIndex) and bytes
+  (simpler-objects) alike. Keep the file mode 0600; edits require an API
+  restart. Unset `OBJIDX_AUTH_CONFIG` = fully open API, exactly as before.
+- **Attribution becomes trustworthy.** With auth enabled, `ul_user` on
+  uploaded files is set to the authenticated client name, overriding whatever
+  the client reports (client names longer than 15 characters are truncated to
+  fit the column).
+- **Permission model.** `write` guards `POST /upload/` and
+  `PUT /object/{uuid}/`, `read` guards `GET /object/{uuid}/download`, `list`
+  guards `GET /buckets/{bucket}/` — each against the relevant bucket. The
+  remaining metadata endpoints (file/object search and fetch) require only a
+  valid key, with no per-bucket filtering: ObjectIndex metadata is inherently
+  cross-bucket (checksum dedup spans buckets), while the bytes stay gated by
+  simpler-objects' own per-bucket `read`. Note the dedup consequence: a client
+  with `write` on one bucket may see the (credential-free) download URL of an
+  identical object living in another bucket.
+- **GUI limitation.** The GUI authenticates to the API with the key in its
+  `.cfg` (see below), but `/object/<id>/download` redirects the *browser* to
+  simpler-objects, where the browser has no API key — with simpler-objects
+  client auth enabled that download 401s (the browser can answer the Basic
+  prompt with the client name and key). Proxying/streaming through the GUI is
+  a follow-up.
+
+### For API consumers
+
+- **Credential format.** `OBJIDX_AUTH` is now `name:key` (a bare `name` still
+  works against an open server). The client library sends the key as
+  `Authorization: Bearer` to the ObjectIndex API *and* as the simpler-objects
+  API key for byte I/O — one credential for both systems. HTTP Basic
+  (`name:key`) is also accepted by the API, so browsers can answer the auth
+  prompt.
+- **New env var `OBJIDX_CA_BUNDLE`**: path to a PEM bundle (e.g. a private CA)
+  used to verify HTTPS on both the ObjectIndex API and simpler-objects legs.
+- **New error responses** when the server has auth enabled: `401` with a
+  `WWW-Authenticate` challenge (missing/invalid credentials — fix the key, do
+  not retry) and `403` (valid key, insufficient permissions).
+- **Returned storage URLs are now clean.** `upload.s3`, `download` and
+  `presigned` no longer embed `user:pass@`; fetch the bytes from
+  simpler-objects with your API key (its locator answers with a short-lived
+  signed redirect).
+
 ## Upgrading to 0.3.0 (Flask → FastAPI)
 
 The flagship change in 0.3.0 is that the **REST API is now FastAPI** (served by
@@ -272,9 +342,9 @@ runs `pg_dump`, gzips the plain-SQL dump, uploads it as an ordinary object, and
 prints the simpler-objects URL of the stored dump.
 
 ```bash
-OBJIDX_URL=http://localhost:8000/ OBJIDX_AUTH=username \
+OBJIDX_URL=http://localhost:8000/ OBJIDX_AUTH=username:apikey \
 python3 scripts/backup.py -b bucket1 postgresql:///objidx
-# ...prints: http://user:pass@host:9000/bucket1/<sha256>-objidx-....sql.gz
+# ...prints: http://host:29164/bucket1/<sha256>-objidx-....sql.gz
 ```
 
 It needs the client env vars (`OBJIDX_URL`/`OBJIDX_AUTH`) and takes a native
@@ -292,14 +362,17 @@ schema, so `obj_idx.db_create` is not needed.
 
 ```bash
 createdb objidx_restore
-scripts/restore.sh "http://user:pass@host:9000/bucket1/<key>.sql.gz" postgresql:///objidx_restore
+scripts/restore.sh "http://host:29164/bucket1/<key>.sql.gz" postgresql:///objidx_restore
 # or from a local file:
 scripts/restore.sh ./objidx-20260610T120000Z.sql.gz postgresql:///objidx_restore
 ```
 
-Note the printed URL embeds whatever is in `OBJIDX_S3` (including any
-`user:pass`), since every direct simpler-objects URL does; treat the backup URL
-as a secret accordingly.
+Since 0.4.0 the printed URL is credential-free (it is built from `OBJIDX_S3`,
+which may no longer embed `user:pass`). If the simpler-objects cluster requires
+auth, add your client name and key to the URL you hand `restore.sh`
+(`http://name:key@host:29164/...`) — curl sends them as Basic auth to the
+locator, which is exactly what it accepts, and drops them on the redirect where
+the signed URL takes over.
 
 ## Config files
 
@@ -314,12 +387,18 @@ The API (FastAPI) is configured by environment variables, all prefixed
 OBJIDX_DATABASE_URL=postgresql+psycopg2:///objidx
 OBJIDX_S3=http://localhost:29164/
 OBJIDX_BUCKETS=bucket1
+#OBJIDX_AUTH_CONFIG=/etc/objectindex/auth.toml
 ```
 
 - `OBJIDX_DATABASE_URL` is the SQLAlchemy database URL (include the driver).
-- `OBJIDX_S3` is the URL for Simpler Objects Locator.
+- `OBJIDX_S3` is the URL for Simpler Objects Locator — **without** embedded
+  credentials (the API refuses to start otherwise; see the 0.4.0 upgrade
+  notes).
 - `OBJIDX_BUCKETS` is a comma-separated list of buckets that may be used
   (e.g. `bucket1,bucket2`).
+- `OBJIDX_AUTH_CONFIG` (optional) enables client authentication; it points at
+  a client-key TOML in simpler-objects' `auth.toml` format (see the 0.4.0
+  upgrade notes). Unset = open API.
 
 Previous releases used a Flask `.cfg` file referenced by `OBJIDX_SETTINGS`;
 the API no longer uses it (the GUI still does — see below).
@@ -329,7 +408,8 @@ the API no longer uses it (the GUI still does — see below).
 ```
 DEBUG = True
 OBJIDX_URL="http://127.0.0.1:29161/"  # change if running on a different host
-OBJIDX_AUTH="user"  # currently just username as no auth yet at API level, ideally pass thru in fut
+OBJIDX_AUTH="user:apikey"  # client name and API key; just "user" against an open API
+#OBJIDX_CA_BUNDLE="/path/to/ca.pem"  # private CA for HTTPS verification
 ```
 
 ## Testing

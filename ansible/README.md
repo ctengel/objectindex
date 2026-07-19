@@ -84,8 +84,9 @@ other task is a no-op when nothing changed.
 | Inventory var          | Required | Maps to / purpose                                  |
 |------------------------|----------|----------------------------------------------------|
 | `objidx_database_url`  | yes      | `OBJIDX_DATABASE_URL` (SQLAlchemy URL of an existing Postgres DB) |
-| `objidx_s3`            | yes      | `OBJIDX_S3` (base URL of the simpler-objects server) |
+| `objidx_s3`            | yes      | `OBJIDX_S3` (base URL of the simpler-objects locator; **no embedded `user:pass@`** — the play and the app both reject it since 0.4.0) |
 | `objidx_buckets`       | yes      | `OBJIDX_BUCKETS` (YAML list; joined to a comma list) |
+| `objidx_auth_clients`  | no       | Client API keys + per-bucket permissions; renders `auth.toml` and sets `OBJIDX_AUTH_CONFIG` (keep keys in Vault; empty/omitted = open API) |
 | `objectindex_version`  | no       | git tag to install (default in role defaults)      |
 | `objectindex_host`     | no       | uvicorn bind host (default `0.0.0.0`)              |
 | `objectindex_port`     | no       | uvicorn port (default `29161`)                     |

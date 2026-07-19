@@ -108,6 +108,40 @@ def test_put_calls_requests_put():
     assert result == {'completed': True}
 
 
+def test_api_key_sends_bearer_header():
+    oi = ObjectIndex(BASE_URL, api_key='sekrit')
+    with patch('obj_idx.clilib.requests') as mock_req:
+        mock_req.get.return_value = _mock_response({})
+        mock_req.post.return_value = _mock_response({})
+        mock_req.put.return_value = _mock_response({})
+        oi.get('object/123/')
+        oi.post('upload/', {'a': 1})
+        oi.put(f'object/{OBJ_UUID}/', {'completed': True})
+    expected = {'Authorization': 'Bearer sekrit'}
+    assert mock_req.get.call_args.kwargs['headers'] == expected
+    assert mock_req.post.call_args.kwargs['headers'] == expected
+    assert mock_req.put.call_args.kwargs['headers'] == expected
+
+
+def test_ca_bundle_sets_verify():
+    oi = ObjectIndex(BASE_URL, ca_bundle='/ca.pem')
+    with patch('obj_idx.clilib.requests') as mock_req:
+        mock_req.get.return_value = _mock_response({})
+        oi.get('object/123/')
+    assert mock_req.get.call_args.kwargs['verify'] == '/ca.pem'
+    assert 'headers' not in mock_req.get.call_args.kwargs
+
+
+def test_no_auth_no_extra_kwargs():
+    # Pin that a keyless ObjectIndex sends neither headers nor verify
+    oi = ObjectIndex(BASE_URL)
+    with patch('obj_idx.clilib.requests') as mock_req:
+        mock_req.get.return_value = _mock_response({})
+        oi.get('object/123/')
+    assert 'headers' not in mock_req.get.call_args.kwargs
+    assert 'verify' not in mock_req.get.call_args.kwargs
+
+
 def test_http_error_propagates():
     oi = ObjectIndex(BASE_URL)
     resp = _mock_response({}, status_code=404)

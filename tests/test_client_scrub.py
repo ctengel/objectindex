@@ -107,6 +107,22 @@ def test_incomplete_200_broken():
     assert results[0].is_error is True
 
 
+def test_head_gets_obj_idx_credentials():
+    # Both HEAD paths (incomplete probe and --all verification) authenticate
+    # to the locator with the ObjectIndex's key/CA bundle.
+    oi = _mock_oi([_brief(completed=False, deleted=False),
+                   _brief(completed=True, deleted=False)])
+    oi.api_key = 'sekrit'
+    oi.ca_bundle = '/ca.pem'
+    with patch('obj_idx.client.head_locator',
+               return_value=_head_resp(404)) as mock_head:
+        scrub_bucket(oi, 'bucket1', S3_BASE, check_all=True)
+    assert mock_head.call_count == 2
+    for call in mock_head.call_args_list:
+        assert call.kwargs['api_key'] == 'sekrit'
+        assert call.kwargs['ca_bundle'] == '/ca.pem'
+
+
 # ---------------------------------------------------------------------------
 # scrub_bucket: --all verification of completed objects
 # ---------------------------------------------------------------------------

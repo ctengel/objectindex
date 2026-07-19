@@ -10,7 +10,7 @@ all:
 
     # The one knob you change to upgrade. The playbook pins the package to this
     # git tag; bump it and re-run the playbook to upgrade.
-    objectindex_version: v0.3.2
+    objectindex_version: v0.4.0
 
   children:
 
@@ -23,7 +23,9 @@ all:
           # not provision Postgres; it only verifies the DB is reachable.
           objidx_database_url: "postgresql+psycopg2://objidx:secret@db.lan/objidx"
 
-          # Base URL of the simpler-objects server.
+          # Base URL of the simpler-objects locator. Must NOT embed user:pass@
+          # credentials (clients authenticate to simpler-objects themselves
+          # since 0.4.0).
           objidx_s3: "http://storage.lan:29171/"
 
           # Allowed upload bucket names (a YAML list; the role joins it into the
@@ -36,3 +38,14 @@ all:
           # objectindex_host: "0.0.0.0"
           # objectindex_port: 29161
           # objectindex_workers: 1
+
+          # Client API keys + per-bucket permissions (renders auth.toml and
+          # sets OBJIDX_AUTH_CONFIG; keep the keys in Ansible Vault). Use the
+          # same name+key as in simpler-objects' locator_auth_clients so one
+          # client credential covers metadata and bytes. Operations: read,
+          # write, list; bucket "*" is a wildcard. Omit for an open API.
+          # objidx_auth_clients:
+          #   oi:
+          #     key: "{{ vault_oi_key }}"
+          #     buckets:
+          #       photos: [read, write, list]

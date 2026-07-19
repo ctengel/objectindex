@@ -8,9 +8,13 @@ from . import client
 def get_api():
     """Get obj_index api object"""
     if 'oiapi' not in flask.g:
-        # TODO let user authenticate into app
-        flask.g.oiapi = client.get_obj_idx(flask.current_app.config['OBJIDX_URL'],
-                                           flask.current_app.config['OBJIDX_AUTH'])
+        # The GUI authenticates to the API with the key configured in its own
+        # cfg; per-browser-user auth is still a TODO.
+        user, api_key = client.parse_auth(flask.current_app.config['OBJIDX_AUTH'])
+        flask.g.oiapi = client.get_obj_idx(
+            flask.current_app.config['OBJIDX_URL'], user,
+            api_key=api_key,
+            ca_bundle=flask.current_app.config.get('OBJIDX_CA_BUNDLE'))
 
     return flask.g.oiapi
 
@@ -144,5 +148,7 @@ def search_objects():
 @app.route("/object/<objectid>/download")
 def download_object(objectid):
     """Redirect to presigned S3 URL for object"""
+    # Known limitation: with simpler-objects client auth enabled, the browser
+    # holds no API key for the locator, so this redirect will 401 there.
     objidx = get_api()
     return flask.redirect(objidx.get_presigned(objectid))
